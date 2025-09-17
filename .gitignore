@@ -243,6 +243,7 @@ uploads/
 videos/
 audios/
 thumbnails/
+local-videos/
 *.db
 *.sqlite
 *.sqlite3

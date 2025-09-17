@@ -29,6 +29,7 @@ class Video(Base):
     duration = Column(Integer)  # 秒
     file_size = Column(Integer)  # 字节
     local_path = Column(String(300))
+    file_fingerprint = Column(String(64), unique=True, index=True)  # SHA256哈希值
     status = Column(String(20), default="pending", index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -16,9 +16,14 @@ export const useVideoStore = defineStore('video', () => {
     try {
       const response = await api.post('/videos/process', videoData)
       return response.data
-    } catch (error) {
+    } catch (error: any) {
       console.error('添加视频失败:', error)
-      throw error
+      // 提取详细错误信息
+      const errorMessage = error.response?.data?.detail || 
+                          error.response?.data?.message || 
+                          error.message || 
+                          '未知错误'
+      throw new Error(errorMessage)
     }
   }
   

@@ -15,6 +15,7 @@
           >
             <el-menu-item index="/">添加视频</el-menu-item>
             <el-menu-item index="/videos">视频列表</el-menu-item>
+            <el-menu-item index="/local-videos">本地视频</el-menu-item>
           </el-menu>
         </div>
       </el-header>

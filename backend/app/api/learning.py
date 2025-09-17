@@ -71,9 +71,14 @@ async def get_learning_stats(db: Session = Depends(get_db)):
     """获取学习统计数据"""
     
     # 总视频数
-    total_videos = db.query(Video).filter(Video.status == "completed").count()
+    total_videos = db.query(Video).count()
     
-    # 各状态统计
+    # 视频处理状态统计
+    pending_videos = db.query(Video).filter(Video.status == "pending").count()
+    processing_videos = db.query(Video).filter(Video.status == "processing").count()
+    completed_videos_count = db.query(Video).filter(Video.status == "completed").count()
+    
+    # 各学习状态统计
     completed_videos = db.query(LearningRecord).filter(LearningRecord.learning_status == "completed").count()
     learning_videos = db.query(LearningRecord).filter(LearningRecord.learning_status == "learning").count()
     todo_videos = db.query(LearningRecord).filter(LearningRecord.learning_status == "todo").count()
@@ -90,10 +95,12 @@ async def get_learning_stats(db: Session = Depends(get_db)):
     total_learning_time = total_learning_time_result or 0
     
     # 完成率
-    completion_rate = (completed_videos / total_videos * 100) if total_videos > 0 else 0
+    completion_rate = (completed_videos_count / total_videos * 100) if total_videos > 0 else 0
     
     return LearningStatsResponse(
         total_videos=total_videos,
+        pending_videos=pending_videos,
+        processing_videos=processing_videos,
         completed_videos=completed_videos,
         learning_videos=learning_videos,
         todo_videos=todo_videos,

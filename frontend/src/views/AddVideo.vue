@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, FormInstance } from 'element-plus'
 import { VideoPlay, Link, Plus } from '@element-plus/icons-vue'
 import { useVideoStore } from '../stores/video'
@@ -226,9 +226,10 @@ const handleSubmit = async () => {
     
     ElMessage.success('视频添加成功，正在后台处理中...')
     
-  } catch (error) {
+  } catch (error: any) {
     console.error('提交失败:', error)
-    ElMessage.error('添加失败，请检查网络连接')
+    const errorMsg = error.message || '添加失败，请检查网络连接'
+    ElMessage.error(errorMsg)
   } finally {
     processing.value = false
   }

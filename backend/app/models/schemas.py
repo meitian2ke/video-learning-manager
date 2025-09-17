@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, AnyUrl
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -30,7 +30,7 @@ class TaskStatus(str, Enum):
 
 # 基础模型
 class VideoBase(BaseModel):
-    url: HttpUrl
+    url: AnyUrl
     title: Optional[str] = None
     platform: str
 
@@ -160,12 +160,14 @@ class VideoListResponse(BaseModel):
 
 # 请求模型
 class VideoProcessRequest(BaseModel):
-    url: HttpUrl
+    url: AnyUrl
     category_ids: Optional[List[int]] = []
     priority: Optional[int] = Field(default=3, ge=1, le=5)
 
 class LearningStatsResponse(BaseModel):
     total_videos: int
+    pending_videos: int
+    processing_videos: int
     completed_videos: int
     learning_videos: int
     todo_videos: int

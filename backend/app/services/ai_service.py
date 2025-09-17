@@ -1,7 +1,7 @@
 import asyncio
 import os
 import re
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from pathlib import Path
 import subprocess
 import json
@@ -9,25 +9,60 @@ from faster_whisper import WhisperModel
 from app.core.config import settings
 import logging
 
+# OpenAI API client - 延迟初始化避免启动问题
+openai_client = None
+try:
+    from openai import OpenAI
+    # 延迟到实际使用时再初始化
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
+
+# 创建信号量控制并发转录数量
+transcription_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TRANSCRIPTIONS)
 
 class AITranscriptionService:
     def __init__(self):
         self.model = None
-        self._initialize_model()
+        # 不在初始化时加载模型，采用懒加载模式
     
-    def _initialize_model(self):
-        """初始化Whisper模型"""
+    def _ensure_model_loaded(self):
+        """确保模型已加载（懒加载）"""
+        if self.model is None:
+            try:
+                logger.info(f"正在加载Whisper模型: {settings.WHISPER_MODEL}")
+                self.model = WhisperModel(
+                    settings.WHISPER_MODEL,
+                    device=settings.WHISPER_DEVICE,
+                    compute_type=settings.WHISPER_COMPUTE_TYPE,
+                    num_workers=getattr(settings, 'WHISPER_NUM_WORKERS', 1),
+                    cpu_threads=getattr(settings, 'WHISPER_THREADS', 2)
+                )
+                logger.info(f"Whisper模型 {settings.WHISPER_MODEL} 加载成功")
+            except Exception as e:
+                logger.error(f"Whisper模型加载失败: {e}")
+                raise Exception(f"模型未安装或损坏，请先手动下载模型: {e}")
+        return self.model
+    
+    def download_model(self):
+        """手动下载模型"""
         try:
-            self.model = WhisperModel(
+            logger.info(f"开始下载Whisper模型: {settings.WHISPER_MODEL}")
+            # 这会触发模型下载
+            model = WhisperModel(
                 settings.WHISPER_MODEL,
                 device=settings.WHISPER_DEVICE,
-                compute_type=settings.WHISPER_COMPUTE_TYPE
+                compute_type=settings.WHISPER_COMPUTE_TYPE,
+                num_workers=getattr(settings, 'WHISPER_NUM_WORKERS', 1),
+                cpu_threads=getattr(settings, 'WHISPER_THREADS', 2)
             )
-            logger.info(f"Whisper模型 {settings.WHISPER_MODEL} 初始化成功")
+            self.model = model
+            logger.info("模型下载并加载成功")
+            return True
         except Exception as e:
-            logger.error(f"Whisper模型初始化失败: {e}")
-            raise
+            logger.error(f"模型下载失败: {e}")
+            return False
     
     async def download_video(self, url: str, video_id: int) -> Tuple[str, Dict]:
         """下载视频并获取信息"""
@@ -129,47 +164,52 @@ class AITranscriptionService:
             raise
     
     async def transcribe_audio(self, audio_path: str) -> Dict:
-        """转录音频为文字"""
-        try:
-            if not self.model:
-                self._initialize_model()
-            
-            # 执行转录
-            segments, info = self.model.transcribe(audio_path)
-            
-            # 收集转录结果
-            transcript_segments = []
-            full_text = ""
-            
-            for segment in segments:
-                segment_data = {
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text.strip()
+        """转录音频为文字（带并发控制）"""
+        async with transcription_semaphore:  # 控制并发数量
+            try:
+                logger.info(f"开始转录音频: {audio_path} (当前可用槽位: {transcription_semaphore._value})")
+                
+                if not self.model:
+                    self._ensure_model_loaded()
+                
+                # 执行转录
+                segments, info = self.model.transcribe(audio_path)
+                
+                # 收集转录结果
+                transcript_segments = []
+                full_text = ""
+                
+                for segment in segments:
+                    segment_data = {
+                        "start": segment.start,
+                        "end": segment.end,
+                        "text": segment.text.strip()
+                    }
+                    transcript_segments.append(segment_data)
+                    full_text += segment.text.strip() + " "
+                
+                # 清理文本
+                cleaned_text = self._clean_text(full_text)
+                
+                # 生成摘要和标签
+                summary = self._generate_summary(cleaned_text)
+                tags = self._extract_tags(cleaned_text)
+                
+                logger.info(f"转录完成，共转录 {len(transcript_segments)} 个片段 (释放槽位)")
+                
+                return {
+                    "original_text": full_text.strip(),
+                    "cleaned_text": cleaned_text,
+                    "summary": summary,
+                    "tags": ", ".join(tags),
+                    "language": info.language,
+                    "confidence_score": info.language_probability,
+                    "segments": transcript_segments
                 }
-                transcript_segments.append(segment_data)
-                full_text += segment.text.strip() + " "
-            
-            # 清理文本
-            cleaned_text = self._clean_text(full_text)
-            
-            # 生成摘要和标签
-            summary = self._generate_summary(cleaned_text)
-            tags = self._extract_tags(cleaned_text)
-            
-            return {
-                "original_text": full_text.strip(),
-                "cleaned_text": cleaned_text,
-                "summary": summary,
-                "tags": ", ".join(tags),
-                "language": info.language,
-                "confidence_score": info.language_probability,
-                "segments": transcript_segments
-            }
-            
-        except Exception as e:
-            logger.error(f"转录音频失败: {e}")
-            raise
+                
+            except Exception as e:
+                logger.error(f"转录音频失败: {e} (释放槽位)")
+                raise
     
     def _clean_text(self, text: str) -> str:
         """清理文本"""
@@ -243,6 +283,196 @@ class AITranscriptionService:
             
         except Exception as e:
             logger.warning(f"清理临时文件失败: {e}")
+    
+    async def transcribe_video(self, video_path: str) -> Dict:
+        """直接转录视频文件（带并发控制）"""
+        async with transcription_semaphore:  # 控制并发数量
+            try:
+                logger.info(f"开始转录视频: {video_path} (当前可用槽位: {transcription_semaphore._value})")
+                
+                # 根据配置选择转录方式，支持自动降级
+                if settings.TRANSCRIPTION_MODE == "openai":
+                    logger.info("🌐 === 使用OpenAI云端转录模式 === 🌐")
+                    logger.info(f"📂 视频文件: {video_path}")
+                    logger.info(f"🔑 API端点: {settings.OPENAI_BASE_URL}")
+                    try:
+                        result = await self._transcribe_with_openai(video_path)
+                        logger.info("✅ === OpenAI云端转录完成 === ✅")
+                        return result
+                    except Exception as openai_error:
+                        logger.error(f"❌ OpenAI转录失败，自动切换到本地模式: {openai_error}")
+                        logger.warning("🔄 === 自动降级到本地CPU转录模式 === 🔄")
+                        # 自动降级到本地模式
+                        result = await self._transcribe_with_local_model(video_path)
+                        logger.info("✅ === 本地CPU转录完成（降级模式）=== ✅")
+                        return result
+                else:
+                    logger.info("💻 === 使用本地CPU转录模式 === 💻")
+                    logger.info(f"📂 视频文件: {video_path}")
+                    logger.warning("⚠️  注意：本地模式将消耗大量CPU资源！")
+                    result = await self._transcribe_with_local_model(video_path)
+                    logger.info("✅ === 本地CPU转录完成 === ✅")
+                    return result
+                    
+            except Exception as e:
+                logger.error(f"转录视频失败: {e} (释放槽位)")
+                return {
+                    "original_text": f"转录失败: {str(e)}",
+                    "cleaned_text": f"转录失败: {str(e)}",
+                    "summary": "视频转录过程中发生错误",
+                    "tags": "转录失败",
+                    "language": "zh",
+                    "confidence_score": 0.0,
+                    "segments": []
+                }
+    
+    async def _transcribe_with_openai(self, video_path: str) -> Dict:
+        """使用OpenAI API转录"""
+        try:
+            logger.info("正在使用OpenAI Whisper API转录视频...")
+            
+            # 延迟初始化OpenAI客户端
+            global openai_client
+            if openai_client is None:
+                from openai import OpenAI
+                openai_client = OpenAI(
+                    api_key=settings.OPENAI_API_KEY,
+                    base_url=settings.OPENAI_BASE_URL
+                )
+            
+            # 检查文件大小 (OpenAI限制25MB)
+            file_size = os.path.getsize(video_path)
+            if file_size > 25 * 1024 * 1024:  # 25MB
+                # 需要先提取音频并压缩
+                audio_path = await self.extract_audio(video_path)
+                transcribe_file = audio_path
+            else:
+                transcribe_file = video_path
+            
+            # 调用OpenAI API
+            with open(transcribe_file, "rb") as audio_file:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="verbose_json",
+                    language="zh"
+                )
+            
+            # 处理响应
+            full_text = transcript.text
+            segments_data = []
+            
+            # 如果有segments信息
+            if hasattr(transcript, 'segments') and transcript.segments:
+                for segment in transcript.segments:
+                    segments_data.append({
+                        "start": segment.get('start', 0),
+                        "end": segment.get('end', 0),
+                        "text": segment.get('text', '').strip()
+                    })
+            else:
+                # 如果没有segments，创建一个简单的segment
+                segments_data.append({
+                    "start": 0,
+                    "end": 0,
+                    "text": full_text
+                })
+            
+            # 清理临时音频文件
+            if transcribe_file != video_path and os.path.exists(transcribe_file):
+                os.remove(transcribe_file)
+            
+            # 处理文本
+            cleaned_text = self._clean_text(full_text)
+            summary = self._generate_summary(cleaned_text)
+            tags = self._extract_tags(cleaned_text)
+            
+            logger.info(f"OpenAI转录完成，共{len(segments_data)}个片段")
+            
+            return {
+                "original_text": full_text,
+                "cleaned_text": cleaned_text,
+                "summary": summary,
+                "tags": ", ".join(tags),
+                "language": "zh",
+                "confidence_score": 0.95,  # OpenAI通常很准确
+                "segments": segments_data
+            }
+            
+        except Exception as e:
+            logger.error(f"OpenAI转录失败: {e}")
+            raise
+    
+    async def _transcribe_with_local_model(self, video_path: str) -> Dict:
+        """使用本地模型转录"""
+        try:
+            # 确保模型已加载
+            self._ensure_model_loaded()
+            
+            # faster-whisper 可以直接处理视频文件
+            logger.info("正在使用本地Whisper模型转录视频...")
+            segments, info = self.model.transcribe(
+                video_path,
+                language="zh",  # 指定为中文
+                task="transcribe"
+            )
+            
+            # 收集转录结果
+            transcript_segments = []
+            full_text = ""
+            
+            for segment in segments:
+                segment_data = {
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text.strip()
+                }
+                transcript_segments.append(segment_data)
+                full_text += segment.text.strip() + " "
+            
+            if not full_text.strip():
+                logger.warning("转录结果为空，可能是视频没有音频或音频质量问题")
+                return {
+                    "original_text": "未检测到音频内容",
+                    "cleaned_text": "未检测到音频内容",
+                    "summary": "该视频可能没有音频内容或音频质量较差",
+                    "tags": "无音频",
+                    "language": "zh",
+                    "confidence_score": 0.0,
+                    "segments": []
+                }
+            
+            # 清理文本
+            cleaned_text = self._clean_text(full_text)
+            
+            # 生成摘要和标签
+            summary = self._generate_summary(cleaned_text)
+            tags = self._extract_tags(cleaned_text)
+            
+            logger.info(f"本地转录完成，共转录 {len(transcript_segments)} 个片段")
+            
+            return {
+                "original_text": full_text.strip(),
+                "cleaned_text": cleaned_text,
+                "summary": summary,
+                "tags": ", ".join(tags),
+                "language": info.language,
+                "confidence_score": info.language_probability,
+                "segments": transcript_segments
+            }
+                
+        except Exception as e:
+            logger.error(f"转录视频失败: {e} (释放槽位)")
+            # 返回错误信息而不是抛出异常
+            return {
+                "original_text": f"转录失败: {str(e)}",
+                "cleaned_text": f"转录失败: {str(e)}",
+                "summary": "视频转录过程中发生错误",
+                "tags": "转录失败",
+                "language": "zh",
+                "confidence_score": 0.0,
+                "segments": []
+            }
 
 # 全局服务实例
 ai_service = AITranscriptionService()

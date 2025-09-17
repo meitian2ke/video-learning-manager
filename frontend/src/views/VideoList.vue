@@ -2,28 +2,42 @@
   <div class="video-list-container">
     <!-- 统计面板 -->
     <el-row :gutter="20" style="margin-bottom: 20px;">
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card>
           <el-statistic title="总视频数" :value="stats.total_videos">
             <template #suffix>个</template>
           </el-statistic>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
+        <el-card>
+          <el-statistic title="待处理" :value="stats.pending_videos" value-style="color: #909399">
+            <template #suffix>个</template>
+          </el-statistic>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
+        <el-card>
+          <el-statistic title="转录中" :value="stats.processing_videos" value-style="color: #409EFF">
+            <template #suffix>个</template>
+          </el-statistic>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
         <el-card>
           <el-statistic title="已完成" :value="stats.completed_videos" value-style="color: #67C23A">
             <template #suffix>个</template>
           </el-statistic>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card>
           <el-statistic title="学习中" :value="stats.learning_videos" value-style="color: #E6A23C">
             <template #suffix>个</template>
           </el-statistic>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card>
           <el-statistic title="完成率" :value="stats.completion_rate" :precision="1" value-style="color: #409EFF">
             <template #suffix>%</template>
@@ -56,6 +70,7 @@
         <el-col :span="4">
           <el-select v-model="filterStatus" placeholder="处理状态" clearable @change="handleFilter">
             <el-option label="全部" value="" />
+            <el-option label="待处理" value="pending" />
             <el-option label="处理中" value="processing" />
             <el-option label="已完成" value="completed" />
             <el-option label="失败" value="failed" />
@@ -70,10 +85,19 @@
           </el-select>
         </el-col>
         <el-col :span="4">
-          <el-button type="primary" @click="refreshData">
-            <el-icon><Refresh /></el-icon>
-            刷新
-          </el-button>
+          <el-button-group>
+            <el-button type="primary" @click="refreshData">
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
+            <el-button 
+              :type="autoRefresh ? 'success' : 'info'" 
+              @click="toggleAutoRefresh"
+              :title="autoRefresh ? '点击停止自动刷新' : '点击开启自动刷新'"
+            >
+              {{ autoRefresh ? '自动' : '手动' }}
+            </el-button>
+          </el-button-group>
         </el-col>
       </el-row>
     </el-card>
@@ -281,7 +305,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus, View, VideoPlay, Edit, Delete } from '@element-plus/icons-vue'
 import { useVideoStore } from '../stores/video'
@@ -295,8 +319,12 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const selectedVideos = ref([])
+const autoRefresh = ref(true) // 自动刷新开关
+const refreshInterval = ref(null) // 刷新定时器
 const stats = ref({
   total_videos: 0,
+  pending_videos: 0,
+  processing_videos: 0,
   completed_videos: 0,
   learning_videos: 0,
   todo_videos: 0,
@@ -495,10 +523,10 @@ const getStatusTagType = (status: string) => {
 
 const getStatusText = (status: string) => {
   const texts = {
-    'pending': '等待中',
+    'pending': '待处理',
     'downloading': '下载中',
-    'processing': '处理中',
-    'completed': '完成',
+    'processing': '转录中',
+    'completed': '已完成',
     'failed': '失败'
   }
   return texts[status] || '未知'
@@ -536,8 +564,46 @@ function debounce(func: Function, wait: number) {
 }
 
 // 页面加载
+// 启动自动刷新
+const startAutoRefresh = () => {
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+  }
+  
+  refreshInterval.value = setInterval(async () => {
+    if (autoRefresh.value) {
+      await refreshData()
+    }
+  }, 30000) // 30秒刷新一次
+}
+
+// 停止自动刷新
+const stopAutoRefresh = () => {
+  if (refreshInterval.value) {
+    clearInterval(refreshInterval.value)
+    refreshInterval.value = null
+  }
+}
+
+// 切换自动刷新
+const toggleAutoRefresh = () => {
+  autoRefresh.value = !autoRefresh.value
+  if (autoRefresh.value) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}
+
 onMounted(async () => {
   await refreshData()
+  if (autoRefresh.value) {
+    startAutoRefresh()
+  }
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 </script>
 

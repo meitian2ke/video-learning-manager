@@ -20,10 +20,19 @@ class Settings(BaseSettings):
     AUDIO_DIR: str = "/var/video-learning-manager/audios"
     THUMBNAIL_DIR: str = "/var/video-learning-manager/thumbnails"
     
-    # AI模型配置
-    WHISPER_MODEL: str = "medium"
+    # AI转录配置
+    TRANSCRIPTION_MODE: str = "openai"  # local, openai
+    
+    # OpenAI API配置 (第三方接口)
+    OPENAI_API_KEY: str = "sk-7Ptb5d219b821caf56d600b1f70bdf02dec547de3dcJXdVL"
+    OPENAI_BASE_URL: str = "https://api.gptsapi.net"
+    
+    # 本地模型配置 (备用)
+    WHISPER_MODEL: str = "tiny"
     WHISPER_DEVICE: str = "cpu"
     WHISPER_COMPUTE_TYPE: str = "int8"
+    WHISPER_NUM_WORKERS: int = 1
+    WHISPER_THREADS: int = 2
     
     # 安全配置
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -38,6 +47,14 @@ class Settings(BaseSettings):
     MAX_VIDEO_SIZE: int = 500 * 1024 * 1024  # 500MB
     MAX_PROCESSING_TIME: int = 1800  # 30分钟
     SUPPORTED_PLATFORMS: list = ["douyin", "weixin", "bilibili", "youtube"]
+    
+    # 并发控制配置
+    MAX_CONCURRENT_TRANSCRIPTIONS: int = 1  # 最大同时转录数量
+    TRANSCRIPTION_QUEUE_SIZE: int = 10  # 转录队列大小
+    
+    # 本地视频监控配置
+    LOCAL_VIDEO_DIR: str = "/Users/user/Documents/AI-MCP-Store/video-learning-manager/local-videos"
+    ENABLE_LOCAL_SCAN: bool = True
     
     class Config:
         env_file = ".env"
