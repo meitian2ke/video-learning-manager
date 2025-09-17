@@ -248,6 +248,16 @@ local-videos/
 *.sqlite
 *.sqlite3
 
+# AI Models and Cache
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+models/
+.cache/
+huggingface_cache/
+
 # Docker
 .dockerignore
 

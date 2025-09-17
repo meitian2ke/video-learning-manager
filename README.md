@@ -1,178 +1,154 @@
 # 视频学习管理器
 
-一个智能的视频学习内容管理工具，支持从微信、抖音、B站等平台提取视频字幕，并提供学习进度管理功能。
+智能视频字幕提取和学习管理系统，支持双模式AI转录（云端优先，本地备用）。
 
 ## 功能特点
 
-- 🎥 **多平台支持**: 支持微信、抖音、B站、YouTube等主流视频平台
-- 🤖 **AI字幕提取**: 使用 Faster-Whisper 进行高精度中文字幕识别
-- 📝 **智能内容整理**: 自动生成摘要、提取关键词标签
-- 📊 **学习进度管理**: 跟踪学习状态、记录学习笔记
-- 🏷️ **分类管理**: 支持视频分类和标签管理
-- 📈 **统计分析**: 学习进度统计和可视化
+🌐 **双模式转录系统**
+- OpenAI云端API转录（主模式，低CPU占用）
+- 本地Whisper模型转录（备用模式，支持离线）
+- 自动降级机制，确保服务可靠性
 
-## 技术架构
+📱 **智能管理**
+- 本地视频文件监控和自动处理
+- 实时状态更新，无需手动刷新
+- 明显的转录模式提醒（🌐 云端 / 💻 本地）
 
-### 后端技术栈
-- **Python 3.11** + **FastAPI** - API服务
-- **SQLite** - 数据存储
-- **Faster-Whisper** - AI字幕识别
-- **yt-dlp** - 视频下载
-- **FFmpeg** - 音频处理
-- **Redis** + **Celery** - 异步任务处理
-
-### 前端技术栈
-- **Vue.js 3** - 前端框架
-- **Element Plus** - UI组件库
-- **Pinia** - 状态管理
-- **TypeScript** - 类型支持
+🎯 **性能优化**
+- CPU占用从584%降至正常水平（17-18%）
+- 并发控制，避免系统过载
+- 智能队列管理
 
 ## 快速开始
 
-### 1. 环境要求
-- Python 3.11+
-- Node.js 18+
-- Redis
-- FFmpeg
-- Docker (可选)
+### 使用Docker部署（推荐）
 
-### 2. 使用 Docker 部署 (推荐)
-
+1. **克隆项目**
 ```bash
-# 克隆项目
-git clone <repository-url>
+git clone https://github.com/meitian2ke/video-learning-manager.git
 cd video-learning-manager
-
-# 启动服务
-docker-compose up -d
-
-# 访问应用
-open http://localhost
 ```
 
-### 3. 手动部署
+2. **配置环境变量（可选）**
+```bash
+# 创建 .env 文件
+cp .env.example .env
+# 编辑 .env 文件，设置你的 OpenAI API Key
+```
 
-#### 后端部署
+3. **启动服务**
+```bash
+docker-compose up -d
+```
+
+4. **访问应用**
+- 前端界面: http://localhost:8000
+- API文档: http://localhost:8000/docs
+
+### 手动部署
+
+#### 后端启动
 ```bash
 cd backend
-
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r ../requirements.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### 前端部署
+#### 前端启动
 ```bash
 cd frontend
-
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm run dev
-
-# 构建生产版本
-npm run build
 ```
-
-## 使用说明
-
-### 1. 添加视频
-1. 访问首页，输入视频链接
-2. 选择优先级和分类（可选）
-3. 点击"添加视频"，系统会自动：
-   - 下载视频
-   - 提取音频
-   - 生成字幕
-   - 创建学习记录
-
-### 2. 管理视频
-1. 进入"视频列表"页面
-2. 查看所有视频的处理状态和学习进度
-3. 可以：
-   - 查看视频详情和字幕内容
-   - 编辑学习笔记
-   - 更新学习状态
-   - 标记实践完成情况
-
-### 3. 学习管理
-- **学习状态**: 待学习 → 学习中 → 已完成
-- **实践状态**: 未开始 → 计划中 → 实施中 → 已完成
-- **笔记记录**: 支持富文本笔记和代码仓库链接
-- **进度统计**: 可视化学习进度和完成率
 
 ## 配置说明
 
-### 环境变量
-创建 `backend/.env` 文件：
-```bash
-# 数据库配置
-DATABASE_URL=sqlite:///./video_learning.db
+### 转录模式
+- `TRANSCRIPTION_MODE=openai`: 使用OpenAI云端API（推荐）
+- `TRANSCRIPTION_MODE=local`: 使用本地Whisper模型
 
-# Redis配置
-REDIS_URL=redis://localhost:6379/0
+### OpenAI API配置
+```env
+OPENAI_API_KEY=your-api-key-here
+OPENAI_BASE_URL=https://api.openai.com  # 或第三方代理
+```
 
-# 文件存储路径
-UPLOAD_DIR=/var/video-learning-manager/uploads
-VIDEO_DIR=/var/video-learning-manager/videos
-
-# Whisper配置
-WHISPER_MODEL=medium
-WHISPER_DEVICE=cpu
+### 本地模型配置
+```env
+WHISPER_MODEL=tiny  # tiny, base, small, medium, large
+WHISPER_DEVICE=cpu  # cpu, cuda
 WHISPER_COMPUTE_TYPE=int8
-
-# 安全配置
-SECRET_KEY=your-secret-key-here
 ```
 
-## API 文档
+## 系统要求
 
-启动后端服务后，访问 http://localhost:8000/docs 查看完整的 API 文档。
+- **Docker**: Docker 20.0+ 和 Docker Compose 1.28+
+- **手动部署**: Python 3.11+, Node.js 18+, FFmpeg
 
-## 目录结构
+## 使用说明
 
+1. **添加视频**: 支持URL导入或本地文件监控
+2. **自动转录**: 系统自动检测新视频并进行转录
+3. **查看结果**: 实时查看转录进度和结果
+4. **模式切换**: 可通过API动态切换转录模式
+
+## API文档
+
+启动服务后访问 http://localhost:8000/docs 查看完整API文档。
+
+主要端点:
+- `GET /api/system/config` - 获取系统配置
+- `POST /api/system/config/transcription` - 切换转录模式
+- `GET /api/local-videos/list` - 获取本地视频列表
+- `POST /api/local-videos/process/{video_name}` - 处理指定视频
+
+## 开发说明
+
+### 项目结构
 ```
-video-learning-manager/
-├── backend/                 # 后端代码
-│   ├── app/
-│   │   ├── api/            # API路由
-│   │   ├── core/           # 核心配置
-│   │   ├── models/         # 数据模型
-│   │   └── services/       # 业务服务
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/                # 前端代码
-│   ├── src/
-│   │   ├── views/          # 页面组件
-│   │   ├── stores/         # 状态管理
-│   │   └── router/         # 路由配置
-│   ├── package.json
-│   └── Dockerfile
-├── docker-compose.yml       # Docker编排文件
-├── nginx.conf              # Nginx配置
-└── README.md
+├── backend/          # Python FastAPI后端
+├── frontend/         # Vue.js前端
+├── local-videos/     # 本地视频存储目录
+├── data/            # 数据持久化目录
+├── Dockerfile       # Docker镜像构建
+└── docker-compose.yml  # Docker编排文件
 ```
 
-## 常见问题
+### 开发计划
 
-### Q: 视频下载失败怎么办？
-A: 检查网络连接，某些平台可能需要特殊处理，可以尝试更新 yt-dlp 版本。
+**第一阶段 ✅ 已完成**
+- 双模式AI转录系统
+- 本地视频文件管理
+- 实时状态更新
 
-### Q: 字幕识别准确率不高怎么办？
-A: 可以尝试使用更大的模型（large），或者手动编辑清理后的文本。
+**第二阶段（规划中）**
+- 智能学习功能
+- 视频分类管理
+- 学习进度追踪
+- 内容分析增强
 
-### Q: 如何备份数据？
-A: 定期备份 SQLite 数据库文件和视频文件目录。
+## 故障排除
+
+### 常见问题
+
+1. **CPU占用过高**
+   - 确保使用OpenAI模式：`TRANSCRIPTION_MODE=openai`
+   - 检查并发数设置：`MAX_CONCURRENT_TRANSCRIPTIONS=1`
+
+2. **转录失败**
+   - 检查OpenAI API Key是否正确
+   - 确认网络连接正常
+   - 查看日志中的错误信息
+
+3. **Docker构建失败**
+   - 确保Docker版本符合要求
+   - 检查网络连接，某些依赖可能需要科学上网
 
 ## 贡献指南
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交Issue和Pull Request！
 
 ## 许可证
 
