@@ -46,8 +46,11 @@ class Transcript(Base):
     video_id = Column(Integer, ForeignKey("videos.id"), nullable=False, index=True)
     original_text = Column(Text, nullable=False)
     cleaned_text = Column(Text)
+    formatted_text = Column(Text)  # 格式化的分段文本
     summary = Column(Text)
+    smart_title = Column(String(200))  # 智能生成的标题
     tags = Column(String(200))
+    importance_score = Column(Float)  # 重要性评分(1-5)
     language = Column(String(10), default="zh")
     confidence_score = Column(Float)
     processing_time = Column(Integer)  # 秒

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 from app.core.database import init_db
-from app.api import videos, transcripts, learning, local_videos, system
+from app.api import videos, transcripts, learning, local_videos, system, system_status
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,6 +58,7 @@ app.include_router(transcripts.router, prefix="/api/transcripts", tags=["transcr
 app.include_router(learning.router, prefix="/api/learning", tags=["learning"])
 app.include_router(local_videos.router, prefix="/api/local-videos", tags=["local-videos"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(system_status.router, prefix="/api", tags=["system-status"])
 
 @app.get("/")
 async def root():

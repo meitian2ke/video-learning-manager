@@ -1,21 +1,17 @@
 import asyncio
 import os
 import re
+import platform
 from typing import Dict, Tuple, Optional, List
 from pathlib import Path
 import subprocess
 import json
 from faster_whisper import WhisperModel
 from app.core.config import settings
+from app.utils.system_monitor import system_monitor
 import logging
 
-# OpenAI API client - 延迟初始化避免启动问题
-openai_client = None
-try:
-    from openai import OpenAI
-    # 延迟到实际使用时再初始化
-except ImportError:
-    pass
+# 本地转录专用，移除第三方API依赖
 
 logger = logging.getLogger(__name__)
 
@@ -25,25 +21,89 @@ transcription_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TRANSCRIPTIO
 class AITranscriptionService:
     def __init__(self):
         self.model = None
+        self.current_mode = None
+        self.environment = self._detect_environment()
         # 不在初始化时加载模型，采用懒加载模式
+        logger.info(f"🔧 AI转录服务初始化 - 环境: {self.environment}")
+    
+    def _detect_environment(self) -> str:
+        """检测运行环境"""
+        if settings.ENVIRONMENT != "auto":
+            return settings.ENVIRONMENT
+        
+        # 基于操作系统和硬件自动检测
+        system = platform.system().lower()
+        if system == "darwin":  # macOS
+            return "development"
+        elif system == "linux":
+            # 检查是否有GPU
+            if system_monitor.gpu_available:
+                return "production"
+            else:
+                return "development"
+        else:
+            return "development"
+    
+    def _choose_transcription_mode(self) -> str:
+        """智能选择转录模式（仅本地）"""
+        # 检查系统负载
+        can_transcribe, status_msg = system_monitor.is_suitable_for_transcription()
+        
+        if not can_transcribe:
+            logger.warning(f"⚠️ 系统负载过高，但仍使用本地转录: {status_msg}")
+        
+        return "local"  # 只支持本地转录
     
     def _ensure_model_loaded(self):
         """确保模型已加载（懒加载）"""
         if self.model is None:
             try:
-                logger.info(f"正在加载Whisper模型: {settings.WHISPER_MODEL}")
+                # 智能选择设备和计算类型
+                device = self._choose_device()
+                compute_type = self._choose_compute_type()
+                
+                logger.info(f"🤖 正在加载Whisper模型: {settings.WHISPER_MODEL}")
+                logger.info(f"🎯 设备: {device}, 计算类型: {compute_type}")
+                
                 self.model = WhisperModel(
                     settings.WHISPER_MODEL,
-                    device=settings.WHISPER_DEVICE,
-                    compute_type=settings.WHISPER_COMPUTE_TYPE,
+                    device=device,
+                    compute_type=compute_type,
                     num_workers=getattr(settings, 'WHISPER_NUM_WORKERS', 1),
                     cpu_threads=getattr(settings, 'WHISPER_THREADS', 2)
                 )
-                logger.info(f"Whisper模型 {settings.WHISPER_MODEL} 加载成功")
+                logger.info(f"✅ Whisper模型 {settings.WHISPER_MODEL} 加载成功")
             except Exception as e:
-                logger.error(f"Whisper模型加载失败: {e}")
+                logger.error(f"❌ Whisper模型加载失败: {e}")
                 raise Exception(f"模型未安装或损坏，请先手动下载模型: {e}")
         return self.model
+    
+    def _choose_device(self) -> str:
+        """智能选择计算设备"""
+        if settings.WHISPER_DEVICE != "auto":
+            return settings.WHISPER_DEVICE
+        
+        if settings.FORCE_CPU_MODE:
+            return "cpu"
+        
+        if self.environment == "production" and system_monitor.gpu_available:
+            return "cuda"
+        else:
+            return "cpu"
+    
+    def _choose_compute_type(self) -> str:
+        """智能选择计算类型"""
+        if settings.WHISPER_COMPUTE_TYPE != "auto":
+            return settings.WHISPER_COMPUTE_TYPE
+        
+        device = self._choose_device()
+        
+        if device == "cuda":
+            # GPU环境，使用float16以获得更好性能
+            return "float16"
+        else:
+            # CPU环境，使用int8以节省内存和提高速度
+            return "int8"
     
     def download_model(self):
         """手动下载模型"""
@@ -212,44 +272,206 @@ class AITranscriptionService:
                 raise
     
     def _clean_text(self, text: str) -> str:
-        """清理文本"""
+        """清理文本 - 增强版本，按句号分行，提升可读性"""
         # 去除多余空白
         text = re.sub(r'\s+', ' ', text)
         
-        # 去除常见的无意义词汇
-        noise_words = ['嗯', '啊', '呃', '这个', '那个', '然后']
+        # 去除常见的无意义词汇和填充词
+        noise_words = ['嗯', '啊', '呃', '这个', '那个', '然后', '就是', '我们', '你们']
         for word in noise_words:
             text = text.replace(word, '')
         
-        # 添加标点符号
-        text = re.sub(r'([。！？])\s*', r'\1\n', text)
+        # 智能断句 - 按标点符号分行
+        text = re.sub(r'([。！？；])\s*', r'\1\n', text)
+        
+        # 处理逗号 - 适当添加换行提升可读性
+        text = re.sub(r'([，,])\s*([A-Z]|\d+|[一-龯]{3,})', r'\1\n\2', text)
+        
+        # 清理多余的空行和空格
+        text = re.sub(r'\n\s*\n', '\n', text)
+        text = re.sub(r'^\s+|\s+$', '', text, flags=re.MULTILINE)
         
         return text.strip()
     
     def _generate_summary(self, text: str) -> str:
-        """生成摘要（简单版本，可后续用LLM优化）"""
-        sentences = text.split('。')
-        # 取前3个有效句子作为摘要
-        summary_sentences = [s.strip() for s in sentences[:3] if len(s.strip()) > 10]
+        """生成智能摘要"""
+        sentences = text.replace('\n', '').split('。')
+        
+        # 过滤有效句子
+        valid_sentences = [s.strip() for s in sentences if len(s.strip()) > 15]
+        
+        if not valid_sentences:
+            return "无法生成摘要"
+        
+        # 智能选择关键句子（包含数字、公司名、产品名的句子优先）
+        important_keywords = ['万', '亿', '元', '美元', '开发者', '平台', '框架', '开源', 'AI', 'API']
+        scored_sentences = []
+        
+        for sentence in valid_sentences[:8]:  # 最多分析前8句
+            score = 0
+            # 包含重要关键词的句子得分更高
+            for keyword in important_keywords:
+                if keyword in sentence:
+                    score += 1
+            # 句子长度适中的得分更高
+            if 20 <= len(sentence) <= 80:
+                score += 1
+            scored_sentences.append((score, sentence))
+        
+        # 按得分排序，取前3句
+        scored_sentences.sort(key=lambda x: x[0], reverse=True)
+        summary_sentences = [s[1] for s in scored_sentences[:3]]
+        
         return '。'.join(summary_sentences) + '。'
     
     def _extract_tags(self, text: str) -> List[str]:
-        """提取关键词标签"""
-        # 简单的关键词提取
-        tech_keywords = [
-            'Python', 'JavaScript', 'React', 'Vue', 'Node.js', 'Django', 'FastAPI',
-            'Docker', 'Git', 'Linux', '编程', '开发', '前端', '后端', '数据库',
-            '部署', '测试', '框架', 'API', '算法', '数据结构'
-        ]
+        """智能提取关键词标签和主题分类"""
+        # 扩展的技术和商业关键词库
+        keyword_categories = {
+            'AI技术': ['AI', '人工智能', '机器学习', '深度学习', '神经网络', 'GPT', 'LLM', '大模型'],
+            '编程开发': ['Python', 'JavaScript', 'React', 'Vue', 'Node.js', 'Django', 'FastAPI', 
+                      '编程', '开发', '前端', '后端', '框架', 'API', '算法', '数据结构'],
+            '工具平台': ['GitHub', 'Docker', 'Git', 'Linux', '部署', '测试', 'CI/CD', '云服务'],
+            '数据爬虫': ['爬虫', '数据抓取', '网页', '数据清洗', '结构化数据', 'web数据'],
+            '商业投资': ['融资', '投资', '万美元', '亿', '创业', 'YC', 'Nexus', '估值'],
+            '产品服务': ['平台', '服务', '用户', '开发者', '企业', 'SaaS', '开源']
+        }
         
         tags = []
-        text_lower = text.lower()
+        text_clean = text.replace('\n', ' ').lower()
         
-        for keyword in tech_keywords:
-            if keyword.lower() in text_lower or keyword in text:
-                tags.append(keyword)
+        # 按分类提取关键词
+        for category, keywords in keyword_categories.items():
+            found_in_category = []
+            for keyword in keywords:
+                if keyword.lower() in text_clean or keyword in text:
+                    found_in_category.append(keyword)
+            
+            # 如果该分类下有关键词，添加分类标签
+            if found_in_category:
+                tags.append(category)
+                # 添加具体的关键词（最多2个）
+                tags.extend(found_in_category[:2])
         
-        return tags[:5]  # 最多返回5个标签
+        # 数字信息提取
+        import re
+        numbers = re.findall(r'\d+[万亿]?[美元元]?', text)
+        if numbers:
+            tags.append('数据指标')
+        
+        # 去重并限制数量
+        unique_tags = list(dict.fromkeys(tags))  # 保持顺序去重
+        return unique_tags[:8]  # 最多返回8个标签
+    
+    def _generate_smart_title(self, text: str) -> str:
+        """智能生成视频标题"""
+        # 提取关键信息来生成标题
+        sentences = text.replace('\n', '').split('。')
+        
+        if not sentences:
+            return "视频内容摘要"
+        
+        first_sentence = sentences[0].strip()
+        
+        # 查找公司名、产品名、技术名等关键信息
+        key_entities = []
+        
+        # 公司和产品名称
+        companies = ['YC', 'Firecrawl', 'Nexus', 'GitHub', 'OpenAI', 'Google', 'Meta', 'Apple']
+        for company in companies:
+            if company in text:
+                key_entities.append(company)
+        
+        # 技术关键词
+        tech_terms = ['AI', '爬虫', '大模型', 'API', '开源', '平台', '框架']
+        for term in tech_terms:
+            if term in text:
+                key_entities.append(term)
+        
+        # 数字信息
+        import re
+        numbers = re.findall(r'\d+[万亿美元]+', text)
+        if numbers:
+            key_entities.extend(numbers[:2])  # 最多添加2个数字
+        
+        # 生成标题
+        if key_entities:
+            # 优先使用前30个字符 + 关键实体
+            base_title = first_sentence[:30]
+            entities_str = " | ".join(key_entities[:3])  # 最多3个关键实体
+            return f"{base_title} - {entities_str}"
+        else:
+            # 如果没有关键实体，使用前50个字符
+            return first_sentence[:50] + ("..." if len(first_sentence) > 50 else "")
+    
+    def _calculate_importance_score(self, text: str, tags: List[str]) -> float:
+        """计算重要性评分 (1.0-5.0)"""
+        score = 3.0  # 基础分数
+        
+        # 基于内容长度评分 (详细的内容通常更重要)
+        if len(text) > 1000:
+            score += 0.5
+        elif len(text) < 200:
+            score -= 0.5
+        
+        # 基于标签数量和质量评分
+        high_value_tags = ['AI技术', '商业投资', '数据指标']
+        medium_value_tags = ['编程开发', '工具平台', '产品服务']
+        
+        for tag in tags:
+            if tag in high_value_tags:
+                score += 0.8
+            elif tag in medium_value_tags:
+                score += 0.4
+        
+        # 基于关键词密度评分
+        important_keywords = ['万美元', '亿', '融资', '开源', 'AI', '平台', 'API']
+        keyword_count = sum(1 for keyword in important_keywords if keyword in text)
+        score += min(keyword_count * 0.2, 1.0)
+        
+        # 基于数字信息评分 (包含具体数据的内容更有价值)
+        import re
+        numbers = re.findall(r'\d+[万亿美元元]+', text)
+        if numbers:
+            score += 0.6
+        
+        # 确保分数在1.0-5.0范围内
+        return max(1.0, min(5.0, score))
+    
+    def _format_text_for_display(self, text: str) -> str:
+        """格式化文本用于显示，增强可读性"""
+        # 按句号分段，每句一行
+        sentences = text.split('。')
+        formatted_lines = []
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            # 检测重要信息并加粗标记
+            if self._is_important_sentence(sentence):
+                formatted_lines.append(f"**{sentence}。**")
+            else:
+                formatted_lines.append(f"{sentence}。")
+        
+        return '\n'.join(formatted_lines)
+    
+    def _is_important_sentence(self, sentence: str) -> bool:
+        """判断句子是否重要（用于加粗显示）"""
+        important_indicators = [
+            r'\d+[万亿][美元元]',  # 金额数字
+            r'\d+万[开发者用户]',  # 用户数量
+            r'开源|GitHub',  # 开源相关
+            r'平台|框架|API',  # 技术平台
+            r'YC|Nexus|领[头投]',  # 投资机构
+        ]
+        
+        for pattern in important_indicators:
+            if re.search(pattern, sentence):
+                return True
+        
+        return False
     
     def _detect_platform(self, url: str) -> str:
         """检测视频平台"""
@@ -285,123 +507,46 @@ class AITranscriptionService:
             logger.warning(f"清理临时文件失败: {e}")
     
     async def transcribe_video(self, video_path: str) -> Dict:
-        """直接转录视频文件（带并发控制）"""
+        """智能转录视频文件（带并发控制和负载监控）"""
         async with transcription_semaphore:  # 控制并发数量
             try:
-                logger.info(f"开始转录视频: {video_path} (当前可用槽位: {transcription_semaphore._value})")
+                logger.info(f"🎬 开始转录视频: {os.path.basename(video_path)}")
+                logger.info(f"📊 当前可用槽位: {transcription_semaphore._value}")
                 
-                # 根据配置选择转录方式，支持自动降级
-                if settings.TRANSCRIPTION_MODE == "openai":
-                    logger.info("🌐 === 使用OpenAI云端转录模式 === 🌐")
-                    logger.info(f"📂 视频文件: {video_path}")
-                    logger.info(f"🔑 API端点: {settings.OPENAI_BASE_URL}")
-                    try:
-                        result = await self._transcribe_with_openai(video_path)
-                        logger.info("✅ === OpenAI云端转录完成 === ✅")
-                        return result
-                    except Exception as openai_error:
-                        logger.error(f"❌ OpenAI转录失败，自动切换到本地模式: {openai_error}")
-                        logger.warning("🔄 === 自动降级到本地CPU转录模式 === 🔄")
-                        # 自动降级到本地模式
-                        result = await self._transcribe_with_local_model(video_path)
-                        logger.info("✅ === 本地CPU转录完成（降级模式）=== ✅")
-                        return result
-                else:
-                    logger.info("💻 === 使用本地CPU转录模式 === 💻")
-                    logger.info(f"📂 视频文件: {video_path}")
-                    logger.warning("⚠️  注意：本地模式将消耗大量CPU资源！")
-                    result = await self._transcribe_with_local_model(video_path)
-                    logger.info("✅ === 本地CPU转录完成 === ✅")
-                    return result
+                # 记录系统状态
+                system_monitor.log_system_status()
+                
+                # 智能选择转录模式
+                mode = self._choose_transcription_mode()
+                self.current_mode = mode
+                
+                logger.info(f"🤖 选择转录模式: {mode}")
+                logger.info(f"🏗️ 运行环境: {self.environment}")
+                
+                logger.info("💻 === 使用本地Whisper模型转录 ===")
+                result = await self._transcribe_with_local_model(video_path)
+                logger.info("✅ === 本地转录完成 ===")
+                
+                # 转录后再次记录系统状态
+                system_monitor.log_system_status()
+                
+                return result
                     
             except Exception as e:
-                logger.error(f"转录视频失败: {e} (释放槽位)")
+                logger.error(f"❌ 转录视频失败: {e} (释放槽位)")
                 return {
                     "original_text": f"转录失败: {str(e)}",
                     "cleaned_text": f"转录失败: {str(e)}",
+                    "formatted_text": f"转录失败: {str(e)}",
                     "summary": "视频转录过程中发生错误",
+                    "smart_title": "转录失败",
                     "tags": "转录失败",
+                    "importance_score": 1.0,
                     "language": "zh",
                     "confidence_score": 0.0,
                     "segments": []
                 }
     
-    async def _transcribe_with_openai(self, video_path: str) -> Dict:
-        """使用OpenAI API转录"""
-        try:
-            logger.info("正在使用OpenAI Whisper API转录视频...")
-            
-            # 延迟初始化OpenAI客户端
-            global openai_client
-            if openai_client is None:
-                from openai import OpenAI
-                openai_client = OpenAI(
-                    api_key=settings.OPENAI_API_KEY,
-                    base_url=settings.OPENAI_BASE_URL
-                )
-            
-            # 检查文件大小 (OpenAI限制25MB)
-            file_size = os.path.getsize(video_path)
-            if file_size > 25 * 1024 * 1024:  # 25MB
-                # 需要先提取音频并压缩
-                audio_path = await self.extract_audio(video_path)
-                transcribe_file = audio_path
-            else:
-                transcribe_file = video_path
-            
-            # 调用OpenAI API
-            with open(transcribe_file, "rb") as audio_file:
-                transcript = openai_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    response_format="verbose_json",
-                    language="zh"
-                )
-            
-            # 处理响应
-            full_text = transcript.text
-            segments_data = []
-            
-            # 如果有segments信息
-            if hasattr(transcript, 'segments') and transcript.segments:
-                for segment in transcript.segments:
-                    segments_data.append({
-                        "start": segment.get('start', 0),
-                        "end": segment.get('end', 0),
-                        "text": segment.get('text', '').strip()
-                    })
-            else:
-                # 如果没有segments，创建一个简单的segment
-                segments_data.append({
-                    "start": 0,
-                    "end": 0,
-                    "text": full_text
-                })
-            
-            # 清理临时音频文件
-            if transcribe_file != video_path and os.path.exists(transcribe_file):
-                os.remove(transcribe_file)
-            
-            # 处理文本
-            cleaned_text = self._clean_text(full_text)
-            summary = self._generate_summary(cleaned_text)
-            tags = self._extract_tags(cleaned_text)
-            
-            logger.info(f"OpenAI转录完成，共{len(segments_data)}个片段")
-            
-            return {
-                "original_text": full_text,
-                "cleaned_text": cleaned_text,
-                "summary": summary,
-                "tags": ", ".join(tags),
-                "language": "zh",
-                "confidence_score": 0.95,  # OpenAI通常很准确
-                "segments": segments_data
-            }
-            
-        except Exception as e:
-            logger.error(f"OpenAI转录失败: {e}")
-            raise
     
     async def _transcribe_with_local_model(self, video_path: str) -> Dict:
         """使用本地模型转录"""
@@ -442,20 +587,24 @@ class AITranscriptionService:
                     "segments": []
                 }
             
-            # 清理文本
+            # 智能文本处理和分析
             cleaned_text = self._clean_text(full_text)
-            
-            # 生成摘要和标签
+            formatted_text = self._format_text_for_display(cleaned_text)
             summary = self._generate_summary(cleaned_text)
             tags = self._extract_tags(cleaned_text)
+            smart_title = self._generate_smart_title(cleaned_text)
+            importance_score = self._calculate_importance_score(cleaned_text, tags)
             
-            logger.info(f"本地转录完成，共转录 {len(transcript_segments)} 个片段")
+            logger.info(f"✅ 本地转录完成，共转录 {len(transcript_segments)} 个片段，重要性评分: {importance_score:.1f}")
             
             return {
                 "original_text": full_text.strip(),
                 "cleaned_text": cleaned_text,
+                "formatted_text": formatted_text,
                 "summary": summary,
+                "smart_title": smart_title,
                 "tags": ", ".join(tags),
+                "importance_score": importance_score,
                 "language": info.language,
                 "confidence_score": info.language_probability,
                 "segments": transcript_segments

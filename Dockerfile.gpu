@@ -1,0 +1,69 @@
+# GPU优化版Dockerfile - 专为生产环境设计
+FROM nvidia/cuda:11.8-devel-ubuntu22.04
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    ffmpeg \
+    git \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建软链接
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+
+# 设置工作目录
+WORKDIR /app
+
+# 升级pip
+RUN python -m pip install --upgrade pip
+
+# 复制requirements文件
+COPY requirements.txt .
+
+# 安装Python依赖（GPU优化）
+RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制应用代码
+COPY backend/ ./backend/
+COPY local-videos/ ./local-videos/
+
+# 创建必要的目录
+RUN mkdir -p /app/data/uploads \
+             /app/data/videos \
+             /app/data/audios \
+             /app/data/thumbnails \
+             /app/data/local-videos \
+             /app/logs
+
+# 设置权限
+RUN chmod -R 755 /app
+
+# 环境变量
+ENV PYTHONPATH=/app/backend
+ENV ENVIRONMENT=production
+ENV WHISPER_DEVICE=cuda
+ENV WHISPER_COMPUTE_TYPE=float16
+ENV WHISPER_MODEL=base
+ENV MAX_CONCURRENT_TRANSCRIPTIONS=3
+ENV FORCE_CPU_MODE=false
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 暴露端口
+EXPOSE 8000
+
+# 启动命令
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

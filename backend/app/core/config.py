@@ -21,18 +21,21 @@ class Settings(BaseSettings):
     THUMBNAIL_DIR: str = "/var/video-learning-manager/thumbnails"
     
     # AI转录配置
-    TRANSCRIPTION_MODE: str = "openai"  # local, openai
+    TRANSCRIPTION_MODE: str = "local"  # local, auto
+    FORCE_CPU_MODE: bool = False  # 强制CPU模式（开发环境）
+    AUTO_GPU_DETECTION: bool = True  # 自动检测GPU
     
-    # OpenAI API配置 (第三方接口)
-    OPENAI_API_KEY: str = "sk-7Ptb5d219b821caf56d600b1f70bdf02dec547de3dcJXdVL"
-    OPENAI_BASE_URL: str = "https://api.gptsapi.net"
-    
-    # 本地模型配置 (备用)
-    WHISPER_MODEL: str = "tiny"
-    WHISPER_DEVICE: str = "cpu"
-    WHISPER_COMPUTE_TYPE: str = "int8"
-    WHISPER_NUM_WORKERS: int = 1
+    # 本地模型配置
+    WHISPER_MODEL: str = "small"  # 开发用small，生产用base/large
+    WHISPER_DEVICE: str = "auto"  # auto, cpu, cuda
+    WHISPER_COMPUTE_TYPE: str = "auto"  # auto, int8, float16, float32
+    WHISPER_NUM_WORKERS: int = 1  # 开发环境限制1个
     WHISPER_THREADS: int = 2
+    
+    # 环境检测配置
+    ENVIRONMENT: str = "auto"  # auto, development, production
+    DEV_CPU_LIMIT: float = 70.0  # 开发环境CPU限制
+    PROD_CPU_LIMIT: float = 90.0  # 生产环境CPU限制
     
     # 安全配置
     SECRET_KEY: str = "your-secret-key-change-in-production"

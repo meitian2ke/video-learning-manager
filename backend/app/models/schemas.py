@@ -57,8 +57,11 @@ class VideoResponse(VideoBase):
 class TranscriptBase(BaseModel):
     original_text: str
     cleaned_text: Optional[str] = None
+    formatted_text: Optional[str] = None  # 格式化的分段文本
     summary: Optional[str] = None
+    smart_title: Optional[str] = None  # 智能生成的标题
     tags: Optional[str] = None
+    importance_score: Optional[float] = None  # 重要性评分(1-5)
     language: str = "zh"
     confidence_score: Optional[float] = None
 

@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  video-learning-manager-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: video-learning-manager-gpu
+    ports:
+      - "8000:8000"
+    volumes:
+      # 数据持久化
+      - ./data:/app/data
+      - ./local-videos:/app/local-videos
+      - ./logs:/app/logs
+      # GPU访问
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    environment:
+      # 生产环境配置
+      - ENVIRONMENT=production
+      - WHISPER_MODEL=base
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+      - MAX_CONCURRENT_TRANSCRIPTIONS=3
+      - FORCE_CPU_MODE=false
+      - AUTO_GPU_DETECTION=true
+      
+      # 性能优化
+      - WHISPER_NUM_WORKERS=1
+      - WHISPER_THREADS=4
+      - DEV_CPU_LIMIT=90.0
+      - PROD_CPU_LIMIT=95.0
+      
+      # 目录配置
+      - UPLOAD_DIR=/app/data/uploads
+      - VIDEO_DIR=/app/data/videos
+      - AUDIO_DIR=/app/data/audios
+      - THUMBNAIL_DIR=/app/data/thumbnails
+      - LOCAL_VIDEO_DIR=/app/local-videos
+      
+      # 数据库
+      - DATABASE_URL=sqlite:///./data/video_learning.db
+      
+      # 日志级别
+      - LOG_LEVEL=INFO
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    restart: unless-stopped
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 可选：添加监控服务
+  nvidia-smi-exporter:
+    image: utkuozdemir/nvidia_gpu_exporter:1.2.0
+    container_name: nvidia-smi-exporter
+    ports:
+      - "9835:9835"
+    devices:
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia0:/dev/nvidia0
+    volumes:
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    restart: unless-stopped
+
+networks:
+  default:
+    name: video-learning-network
