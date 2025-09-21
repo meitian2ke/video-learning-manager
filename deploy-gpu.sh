@@ -52,14 +52,10 @@ if ! command -v nvidia-smi &> /dev/null; then
 fi
 
 # 检查nvidia-container-toolkit
-if ! docker run --rm --gpus all nvidia/cuda:11.8-base nvidia-smi &> /dev/null; then
-    print_error "nvidia-container-toolkit未正确配置！"
-    print_status "请运行以下命令安装："
-    echo "curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
-    echo "curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"
-    echo "sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit"
-    echo "sudo nvidia-ctk runtime configure --runtime=docker"
-    echo "sudo systemctl restart docker"
+# 检查nvidia-container-toolkit
+if ! docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi >/dev/null 2>&1 && \
+   ! docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi >/dev/null 2>&1; then
+    print_error "nvidia-container-toolkit未正确配置！（nvidia-smi 检测失败）"
     exit 1
 fi
 
