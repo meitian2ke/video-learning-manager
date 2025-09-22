@@ -4,7 +4,7 @@ services:
   video-learning-manager-gpu:
     build:
       context: .
-      dockerfile: Dockerfile.gpu
+      dockerfile: ${DOCKERFILE:-Dockerfile.gpu}
     container_name: video-learning-manager-gpu
     ports:
       - "8000:8000"

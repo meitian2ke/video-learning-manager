@@ -1,11 +1,14 @@
-# GPU优化版Dockerfile - 专为生产环境设计
-FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
+# 轻量级GPU版本 - 用于网络环境不稳定的情况
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# 配置pip镜像源（提高下载速度）
+RUN mkdir -p /root/.pip && echo "[global]\nindex-url = https://pypi.tuna.tsinghua.edu.cn/simple\ntrusted-host = pypi.tuna.tsinghua.edu.cn" > /root/.pip/pip.conf
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -30,13 +33,16 @@ RUN python -m pip install --upgrade pip
 # 复制requirements文件
 COPY requirements.txt .
 
-# 安装Python依赖（GPU优化，增加超时和重试）
-RUN pip install --timeout 1000 --retries 5 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
-    pip install --timeout 1000 --retries 3 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
-    pip install torch torchvision torchaudio
-    
-# 安装其他依赖
-RUN pip install --timeout 300 --retries 3 --no-cache-dir -r requirements.txt
+# 分步安装依赖（避免大包下载超时）
+# 1. 先安装基础依赖
+RUN pip install --timeout 300 numpy scipy
+
+# 2. 安装PyTorch（使用清华源，如果失败则用官方源）
+RUN pip install --timeout 1000 torch torchvision torchaudio --index-url https://pypi.tuna.tsinghua.edu.cn/simple || \
+    pip install --timeout 1000 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# 3. 安装其他依赖
+RUN pip install --timeout 300 --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY backend/ ./backend/
