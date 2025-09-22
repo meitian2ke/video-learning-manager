@@ -18,30 +18,26 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# 创建软链接
-RUN ln -s /usr/bin/python3.11 /usr/bin/python && \
-    ln -s /usr/bin/pip3 /usr/bin/pip
-
 # 设置工作目录
 WORKDIR /app
 
-# 升级pip
-RUN python3 -m pip install --upgrade pip
+# 升级pip（直接使用python3.11）
+RUN python3.11 -m pip install --upgrade pip
 
 # 复制requirements文件
 COPY requirements.txt .
 
 # 配置pip使用国内镜像源（大幅提升下载速度）
-RUN python3 -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
-    python3 -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+RUN python3.11 -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+    python3.11 -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 安装PyTorch GPU版本（使用国内源 + CUDA 11.8）
-RUN python3 -m pip install torch torchvision torchaudio \
+RUN python3.11 -m pip install torch torchvision torchaudio \
     -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
 # 安装其他依赖
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY backend/ ./backend/
@@ -75,4 +71,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # 启动命令
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["python3.11", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
