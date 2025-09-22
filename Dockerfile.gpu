@@ -30,13 +30,20 @@ RUN python -m pip install --upgrade pip
 # 复制requirements文件
 COPY requirements.txt .
 
-# 安装Python依赖（GPU优化，增加超时和重试）
-RUN pip install --timeout 1000 --retries 5 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
-    pip install --timeout 1000 --retries 3 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 || \
-    pip install torch torchvision torchaudio
-    
+# 配置pip使用国内镜像源（大幅提升下载速度）
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
+
+# 升级pip
+RUN pip install --upgrade pip
+
+# 安装PyTorch GPU版本（使用国内源 + CUDA 11.8）
+RUN pip install torch torchvision torchaudio \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --extra-index-url https://download.pytorch.org/whl/cu118
+
 # 安装其他依赖
-RUN pip install --timeout 300 --retries 3 --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY backend/ ./backend/

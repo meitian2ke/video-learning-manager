@@ -92,17 +92,8 @@ docker-compose -f docker-compose.gpu.yml down --remove-orphans 2>/dev/null || tr
 print_success "现有容器已停止"
 
 # 6. 构建镜像
-print_status "构建GPU优化镜像..."
-
-# 检查网络连接，选择最适合的Dockerfile
-if ping -c 1 download.pytorch.org >/dev/null 2>&1; then
-    print_status "网络连接良好，使用标准GPU镜像..."
-    docker-compose -f docker-compose.gpu.yml build --no-cache
-else
-    print_warning "网络连接不稳定，使用轻量级镜像..."
-    DOCKERFILE=Dockerfile.gpu.lite docker-compose -f docker-compose.gpu.yml build --no-cache
-fi
-
+print_status "构建GPU优化镜像（使用国内镜像源加速）..."
+docker-compose -f docker-compose.gpu.yml build --no-cache
 print_success "镜像构建完成"
 
 # 7. 启动服务

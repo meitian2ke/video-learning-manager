@@ -7,8 +7,9 @@ ENV PYTHONUNBUFFERED=1
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# 配置pip镜像源（提高下载速度）
-RUN mkdir -p /root/.pip && echo "[global]\nindex-url = https://pypi.tuna.tsinghua.edu.cn/simple\ntrusted-host = pypi.tuna.tsinghua.edu.cn" > /root/.pip/pip.conf
+# 配置pip使用国内镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -37,9 +38,10 @@ COPY requirements.txt .
 # 1. 先安装基础依赖
 RUN pip install --timeout 300 numpy scipy
 
-# 2. 安装PyTorch（使用清华源，如果失败则用官方源）
-RUN pip install --timeout 1000 torch torchvision torchaudio --index-url https://pypi.tuna.tsinghua.edu.cn/simple || \
-    pip install --timeout 1000 torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# 2. 安装PyTorch GPU版本（清华源 + CUDA 11.8）
+RUN pip install torch torchvision torchaudio \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --extra-index-url https://download.pytorch.org/whl/cu118
 
 # 3. 安装其他依赖
 RUN pip install --timeout 300 --no-cache-dir -r requirements.txt
