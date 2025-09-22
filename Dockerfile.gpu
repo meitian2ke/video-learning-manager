@@ -19,31 +19,29 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 创建软链接
-RUN ln -s /usr/bin/python3.11 /usr/bin/python
+RUN ln -s /usr/bin/python3.11 /usr/bin/python && \
+    ln -s /usr/bin/pip3 /usr/bin/pip
 
 # 设置工作目录
 WORKDIR /app
 
 # 升级pip
-RUN python -m pip install --upgrade pip
+RUN python3 -m pip install --upgrade pip
 
 # 复制requirements文件
 COPY requirements.txt .
 
 # 配置pip使用国内镜像源（大幅提升下载速度）
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
-    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
-
-# 升级pip
-RUN pip install --upgrade pip
+RUN python3 -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+    python3 -m pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn
 
 # 安装PyTorch GPU版本（使用国内源 + CUDA 11.8）
-RUN pip install torch torchvision torchaudio \
+RUN python3 -m pip install torch torchvision torchaudio \
     -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
 # 安装其他依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY backend/ ./backend/
