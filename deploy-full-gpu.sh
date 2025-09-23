@@ -99,7 +99,8 @@ print_success "现有容器已停止"
 
 # 7. 构建镜像
 print_status "构建完整GPU优化镜像（前端+后端）..."
-docker-compose -f docker-compose.gpu.yml build --no-cache
+print_status "使用缓存加速构建，如需完全重建请手动添加 --no-cache 参数"
+docker-compose -f docker-compose.gpu.yml build
 print_success "镜像构建完成"
 
 # 8. 启动服务
