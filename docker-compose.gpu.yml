@@ -63,6 +63,23 @@ services:
       retries: 3
       start_period: 40s
 
+  # 前端服务
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: video-learning-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - video-learning-manager-gpu
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # 可选：添加监控服务
   nvidia-smi-exporter:
     image: utkuozdemir/nvidia_gpu_exporter:1.2.0

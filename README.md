@@ -1,13 +1,13 @@
 # 视频学习管理器
 
-智能视频字幕提取和学习管理系统，支持双模式AI转录（云端优先，本地备用）。
+智能视频字幕提取和学习管理系统，支持本地GPU加速转录和完整的Web界面。
 
 ## 功能特点
 
-🌐 **双模式转录系统**
-- OpenAI云端API转录（主模式，低CPU占用）
-- 本地Whisper模型转录（备用模式，支持离线）
-- 自动降级机制，确保服务可靠性
+🚀 **GPU加速转录系统**
+- 本地Whisper模型GPU加速（RTX 3060完美支持）
+- CUDA 11.8优化，支持float16精度
+- 完全离线运行，保护数据隐私
 
 📱 **智能管理**
 - 本地视频文件监控和自动处理
@@ -21,7 +21,13 @@
 
 ## 快速开始
 
-### 使用Docker部署（推荐）
+### GPU加速部署（生产环境推荐）
+
+**系统要求：**
+- Debian/Ubuntu 服务器
+- NVIDIA GPU（RTX 3060及以上）
+- NVIDIA驱动 + nvidia-container-toolkit
+- Docker + Docker Compose
 
 1. **克隆项目**
 ```bash
@@ -29,21 +35,25 @@ git clone https://github.com/meitian2ke/video-learning-manager.git
 cd video-learning-manager
 ```
 
-2. **配置环境变量（可选）**
+2. **一键GPU部署**
 ```bash
-# 创建 .env 文件
-cp .env.example .env
-# 编辑 .env 文件，设置你的 OpenAI API Key
+chmod +x deploy-full-gpu.sh
+./deploy-full-gpu.sh
 ```
 
-3. **启动服务**
+3. **访问应用**
+- 🌐 前端界面: http://your-server-ip (端口80)
+- 🔧 后端API: http://your-server-ip:8000
+- 📚 API文档: http://your-server-ip:8000/docs
+- 📊 GPU监控: http://your-server-ip:9835
+
+### CPU版本部署（开发环境）
+
 ```bash
 docker-compose up -d
 ```
 
-4. **访问应用**
-- 前端界面: http://localhost:8000
-- API文档: http://localhost:8000/docs
+访问: http://localhost:8000
 
 ### 手动部署
 
@@ -65,27 +75,34 @@ npm run dev
 
 ## 配置说明
 
-### 转录模式
-- `TRANSCRIPTION_MODE=openai`: 使用OpenAI云端API（推荐）
-- `TRANSCRIPTION_MODE=local`: 使用本地Whisper模型
-
-### OpenAI API配置
+### GPU加速配置
 ```env
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=https://api.openai.com  # 或第三方代理
+TRANSCRIPTION_MODE=local  # 本地模式
+WHISPER_DEVICE=cuda       # GPU加速
+WHISPER_COMPUTE_TYPE=float16  # 精度优化
+WHISPER_MODEL=base        # 模型大小 (tiny/base/small/medium/large)
+MAX_CONCURRENT_TRANSCRIPTIONS=3  # 并发控制
+FORCE_CPU_MODE=false      # 禁用CPU强制模式
+AUTO_GPU_DETECTION=true   # 自动GPU检测
 ```
 
-### 本地模型配置
-```env
-WHISPER_MODEL=tiny  # tiny, base, small, medium, large
-WHISPER_DEVICE=cpu  # cpu, cuda
-WHISPER_COMPUTE_TYPE=int8
+### 开机自启动
+部署脚本自动配置systemd服务：
+```bash
+sudo systemctl status video-learning-gpu  # 查看状态
+sudo systemctl start video-learning-gpu   # 手动启动
+sudo systemctl stop video-learning-gpu    # 手动停止
 ```
 
 ## 系统要求
 
-- **Docker**: Docker 20.0+ 和 Docker Compose 1.28+
-- **手动部署**: Python 3.11+, Node.js 18+, FFmpeg
+### GPU生产环境
+- **硬件**: NVIDIA GPU (RTX 3060及以上)，建议150GB+磁盘空间
+- **系统**: Debian 11/12 或 Ubuntu 22.04 LTS
+- **软件**: NVIDIA驱动，Docker 20.0+，Docker Compose，nvidia-container-toolkit
+
+### 开发环境
+- **软件**: Python 3.11+，Node.js 18+，FFmpeg
 
 ## 使用说明
 

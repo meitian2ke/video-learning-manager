@@ -86,7 +86,13 @@ if lsof -i:8000 &> /dev/null; then
     fi
 fi
 
-# 5. 停止现有容器
+# 5. 清理Docker资源（释放磁盘空间）
+print_status "清理Docker资源释放磁盘空间..."
+docker system prune -af --volumes 2>/dev/null || true
+docker builder prune -af 2>/dev/null || true
+print_success "Docker资源清理完成"
+
+# 6. 停止现有容器
 print_status "停止现有容器..."
 docker-compose -f docker-compose.gpu.yml down --remove-orphans 2>/dev/null || true
 print_success "现有容器已停止"
