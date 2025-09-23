@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional
 import os
 
@@ -51,9 +52,15 @@ class Settings(BaseSettings):
     MAX_PROCESSING_TIME: int = 1800  # 30分钟
     SUPPORTED_PLATFORMS: list = ["douyin", "weixin", "bilibili", "youtube"]
     
-    # 并发控制配置
-    MAX_CONCURRENT_TRANSCRIPTIONS: int = 1  # 最大同时转录数量
-    TRANSCRIPTION_QUEUE_SIZE: int = 10  # 转录队列大小
+    # 并发控制配置 - 根据环境和GPU能力动态调整
+    MAX_CONCURRENT_TRANSCRIPTIONS: int = Field(
+        default=1,
+        description="最大同时转录数量，生产环境GPU可设为3-5"
+    )
+    TRANSCRIPTION_QUEUE_SIZE: int = Field(
+        default=20,
+        description="转录队列大小，避免大量视频上传时系统过载"
+    )
     
     # 本地视频监控配置
     LOCAL_VIDEO_DIR: str = "/Users/user/Documents/AI-MCP-Store/video-learning-manager/local-videos"

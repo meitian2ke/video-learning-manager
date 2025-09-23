@@ -22,6 +22,10 @@
 
       <!-- 主内容区域 -->
       <el-main style="padding: 20px; background-color: #f5f5f5;">
+        <!-- 系统监控面板 -->
+        <SystemMonitor />
+        
+        <!-- 页面内容 -->
         <router-view />
       </el-main>
     </el-container>
@@ -29,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-// 应用入口组件
+import SystemMonitor from './components/SystemMonitor.vue'
 </script>
 
 <style>

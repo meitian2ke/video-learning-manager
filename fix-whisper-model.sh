@@ -38,39 +38,70 @@ print_status "创建Whisper模型预下载脚本..."
 cat > download_whisper_model.py << 'EOF'
 #!/usr/bin/env python3
 import os
-import torch
-from faster_whisper import WhisperModel
+import sys
 
 def download_whisper_model():
     """预下载Whisper模型"""
-    print("🔍 检查GPU可用性...")
-    
-    if torch.cuda.is_available():
-        device = "cuda"
-        compute_type = "float16"
-        print(f"✅ GPU可用: {torch.cuda.get_device_name()}")
-    else:
-        device = "cpu"
-        compute_type = "int8"
-        print("⚠️ GPU不可用，使用CPU模式")
-    
-    print(f"📥 下载Whisper base模型到 {device}...")
+    print("🔍 开始下载Whisper模型...")
     
     try:
-        # 下载模型
-        model = WhisperModel("base", device=device, compute_type=compute_type)
+        # 设置HuggingFace缓存目录
+        os.environ['HF_HOME'] = '/root/.cache/huggingface'
+        os.environ['TRANSFORMERS_CACHE'] = '/root/.cache/huggingface'
+        
+        # 检查是否有GPU
+        try:
+            import torch
+            gpu_available = torch.cuda.is_available()
+            if gpu_available:
+                device = "cuda"
+                compute_type = "float16"
+                print(f"✅ GPU可用: {torch.cuda.get_device_name(0)}")
+            else:
+                device = "cpu" 
+                compute_type = "int8"
+                print("⚠️ GPU不可用，使用CPU模式")
+        except ImportError:
+            device = "cpu"
+            compute_type = "int8"
+            print("⚠️ PyTorch未找到，使用CPU模式")
+        
+        print(f"📥 下载Whisper base模型到 {device}...")
+        
+        # 创建缓存目录
+        cache_dir = "/root/.cache/huggingface/hub"
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # 导入faster_whisper并下载模型
+        from faster_whisper import WhisperModel
+        
+        # 下载模型（这会自动下载到HuggingFace缓存）
+        print("📥 正在下载模型文件...")
+        model = WhisperModel("base", device=device, compute_type=compute_type, download_root=cache_dir)
         print("✅ 模型下载完成!")
         
-        # 测试模型
-        print("🧪 测试模型...")
-        segments, info = model.transcribe("test", beam_size=5)
-        print(f"✅ 模型测试成功! 语言: {info.language}, 概率: {info.language_probability:.2f}")
+        # 简单测试（不需要实际音频文件）
+        print("🧪 模型加载测试完成")
+        
+        # 检查模型文件是否存在
+        model_path = "/root/.cache/huggingface/hub/models--guillaumekln--faster-whisper-base"
+        if os.path.exists(model_path):
+            print(f"✅ 模型文件确认存在: {model_path}")
+        else:
+            print(f"⚠️ 模型路径不存在: {model_path}")
+            # 列出实际的缓存目录内容
+            print("📂 实际缓存目录内容:")
+            if os.path.exists("/root/.cache/huggingface/hub"):
+                for item in os.listdir("/root/.cache/huggingface/hub"):
+                    print(f"  - {item}")
+        
+        return True
         
     except Exception as e:
         print(f"❌ 模型下载失败: {e}")
+        import traceback
+        traceback.print_exc()
         return False
-    
-    return True
 
 if __name__ == "__main__":
     success = download_whisper_model()
@@ -93,6 +124,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# 设置HuggingFace缓存目录
+ENV HF_HOME=/root/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
+ENV HF_HUB_CACHE=/root/.cache/huggingface/hub
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -126,11 +162,17 @@ RUN python3.11 -m pip install torch torchvision torchaudio \
 # 安装其他依赖
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
+# 创建缓存目录
+RUN mkdir -p /root/.cache/huggingface/hub
+
 # 复制模型下载脚本
 COPY download_whisper_model.py .
 
-# 预下载Whisper模型
-RUN python3.11 download_whisper_model.py
+# 预下载Whisper模型（关键步骤！）
+RUN echo "🔥 开始预下载Whisper模型..." && \
+    python3.11 download_whisper_model.py && \
+    echo "✅ Whisper模型预下载完成" && \
+    ls -la /root/.cache/huggingface/hub/ || echo "模型目录检查失败"
 
 # 复制应用代码
 COPY backend/ ./backend/
