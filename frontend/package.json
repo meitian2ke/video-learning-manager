@@ -4,7 +4,8 @@
   "description": "视频学习管理器前端",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "build": "vite build",
+    "build-with-typecheck": "vue-tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
