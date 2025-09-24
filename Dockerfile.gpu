@@ -44,7 +44,9 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY backend/ ./backend/
-COPY local-videos/ ./local-videos/
+
+# 创建local-videos目录（避免复制空目录导致的问题）
+RUN mkdir -p ./local-videos
 
 # 创建必要的目录
 RUN mkdir -p /app/data/uploads \
