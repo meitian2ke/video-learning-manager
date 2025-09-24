@@ -220,7 +220,6 @@ async def gpu_monitor_page():
             
             <div class="card">
                 <h3>🔧 GPU 进程</h3>
-                {f"""
                 <table class="processes-table">
                     <thead>
                         <tr>
@@ -230,10 +229,9 @@ async def gpu_monitor_page():
                         </tr>
                     </thead>
                     <tbody>
-                        {"".join([f"<tr><td>{p['pid']}</td><td>{p['name']}</td><td>{p['memory']} MB</td></tr>" for p in processes]) if processes else "<tr><td colspan='3' style='text-align: center; opacity: 0.7;'>无运行进程</td></tr>"}
+                        {''.join([f"<tr><td>{p['pid']}</td><td>{p['name']}</td><td>{p['memory']} MB</td></tr>" for p in processes]) if processes else "<tr><td colspan='3' style='text-align: center; opacity: 0.7;'>无运行进程</td></tr>"}
                     </tbody>
                 </table>
-                """ if processes is not None else "<p>无法获取进程信息</p>"}
             </div>
             ''' if gpu_info else ''}
             
