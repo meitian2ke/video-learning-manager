@@ -126,13 +126,10 @@ step5_model_verification() {
     if docker run --rm --gpus all video-learning-manager-video-learning-manager-gpu \
         python3.11 -c "
 from faster_whisper import WhisperModel
-print('🧪 验证medium模型...')
-model1 = WhisperModel('medium', device='cuda', compute_type='float16')
-print('✅ medium模型可用')
-print('🧪 验证large-v3模型...')  
-model2 = WhisperModel('large-v3', device='cuda', compute_type='float16')
-print('✅ large-v3模型可用')
-print('🎉 所有模型验证通过！')
+print('🧪 验证large-v3-turbo模型...')
+model = WhisperModel('large-v3-turbo', device='cuda', compute_type='float16')
+print('✅ large-v3-turbo模型可用')
+print('🎉 模型验证通过！')
 "; then
         print_success "✅ 模型验证通过"
     else
