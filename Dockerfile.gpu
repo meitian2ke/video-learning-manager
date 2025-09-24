@@ -64,7 +64,7 @@ ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
 RUN mkdir -p /root/.cache/huggingface/hub
 
 # 复制预下载的模型到镜像中
-COPY models/models--openai--whisper-large-v3-turbo /root/.cache/huggingface/hub/models--openai--whisper-large-v3-turbo
+COPY models/whisper-large-v3-turbo /root/.cache/huggingface/hub/models--openai--whisper-large-v3-turbo
 
 # 设置权限
 RUN chmod -R 755 /app
