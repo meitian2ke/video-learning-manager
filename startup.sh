@@ -78,39 +78,43 @@ step2_code_update() {
     fi
 }
 
-# 步骤3: 基础镜像预拉取
+# 步骤3: 检查基础镜像
 step3_base_images() {
-    print_header "📦 步骤3: 基础镜像预拉取"
+    print_header "📦 步骤3: 检查基础镜像"
     
-    print_status "预拉取NVIDIA CUDA基础镜像..."
-    if docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04; then
-        print_success "✅ CUDA镜像就绪"
+    # 检查CUDA镜像
+    if docker images nvidia/cuda:11.8.0-devel-ubuntu22.04 | grep -q "11.8.0-devel-ubuntu22.04"; then
+        print_success "✅ CUDA镜像已存在"
     else
-        print_error "❌ CUDA镜像拉取失败"
-        exit 1
+        print_status "拉取NVIDIA CUDA基础镜像..."
+        docker pull nvidia/cuda:11.8.0-devel-ubuntu22.04
+        print_success "✅ CUDA镜像就绪"
     fi
     
-    print_status "预拉取其他基础镜像..."
-    docker pull nginx:alpine || print_warning "⚠️ Nginx镜像拉取失败"
-    docker pull node:18-alpine || print_warning "⚠️ Node.js镜像拉取失败"
+    # 检查其他镜像
+    docker images nginx:alpine | grep -q "alpine" || docker pull nginx:alpine
+    docker images node:18-alpine | grep -q "18-alpine" || docker pull node:18-alpine
+    
+    print_success "✅ 基础镜像检查完成"
 }
 
-# 步骤4: 构建和模型下载
+# 步骤4: 构建镜像
 step4_build_and_models() {
-    print_header "🔧 步骤4: 构建镜像和模型准备"
+    print_header "🔧 步骤4: 构建应用镜像"
     
     print_status "停止现有服务..."
     docker-compose -f docker-compose.gpu.yml down 2>/dev/null || true
     
-    print_status "构建应用镜像（包含模型下载）..."
-    print_warning "⚠️ 这个过程可能需要15-25分钟，包含下载medium和large-v3模型"
-    
-    if docker-compose -f docker-compose.gpu.yml build --no-cache; then
-        print_success "✅ 镜像构建成功，模型已预下载"
+    # 检查是否需要重新构建
+    if docker images video-learning-manager-video-learning-manager-gpu | grep -q "latest"; then
+        print_status "检测到现有镜像，使用缓存构建..."
+        docker-compose -f docker-compose.gpu.yml build
     else
-        print_error "❌ 镜像构建失败"
-        exit 1
+        print_status "首次构建，创建应用镜像..."
+        docker-compose -f docker-compose.gpu.yml build
     fi
+    
+    print_success "✅ 应用镜像构建完成"
 }
 
 # 步骤5: 模型验证
