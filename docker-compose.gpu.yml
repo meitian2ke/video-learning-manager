@@ -19,13 +19,13 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    command: python3 -c "
-from faster_whisper import WhisperModel;
-import os;
-print('📥 下载Whisper模型...');
-model = WhisperModel('base', device='cuda', compute_type='float16');
-print('✅ 模型下载完成');
-"
+    command: >
+      python3 -c "
+      from faster_whisper import WhisperModel;
+      import os;
+      print('📥 下载Whisper模型...');
+      model = WhisperModel('base', device='cuda', compute_type='float16');
+      print('✅ 模型下载完成');"
     profiles:
       - init
 
