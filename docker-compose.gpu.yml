@@ -13,9 +13,7 @@ services:
       - ./data:/app/data
       - ./local-videos:/app/local-videos
       - ./logs:/app/logs
-      # 直接挂载你已下载的模型目录
-      - /home/eric/.cache/huggingface:/root/.cache/huggingface
-      # GPU访问
+      # GPU访问（模型已打入镜像，无需挂载）
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
     environment:

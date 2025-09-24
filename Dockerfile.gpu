@@ -56,10 +56,15 @@ RUN mkdir -p /app/data/uploads \
              /app/data/local-videos \
              /app/logs
 
-# 预下载Whisper模型（确保容器启动时模型可用）
+# 设置模型缓存环境变量
 ENV HF_HOME=/root/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
-RUN python3.11 -c "from faster_whisper import WhisperModel; print('📥 下载medium模型...'); WhisperModel('medium', device='cpu'); print('📥 下载large-v3模型...'); WhisperModel('large-v3', device='cpu'); print('✅ 模型下载完成')"
+
+# 创建模型缓存目录
+RUN mkdir -p /root/.cache/huggingface/hub
+
+# 复制预下载的模型到镜像中
+COPY models/models--openai--whisper-large-v3-turbo /root/.cache/huggingface/hub/models--openai--whisper-large-v3-turbo
 
 # 设置权限
 RUN chmod -R 755 /app
