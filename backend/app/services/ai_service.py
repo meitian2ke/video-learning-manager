@@ -20,8 +20,9 @@ transcription_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TRANSCRIPTIO
 
 class AITranscriptionService:
     def __init__(self):
-        self.model = None
+        self.models = {}  # 存储多个模型实例
         self.current_mode = None
+        self.current_model_name = "medium"  # 默认使用medium模型
         self.environment = self._detect_environment()
         # 不在初始化时加载模型，采用懒加载模式
         logger.info(f"🔧 AI转录服务初始化 - 环境: {self.environment}")

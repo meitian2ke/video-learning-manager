@@ -1,0 +1,30 @@
+# Whisper模型下载容器
+FROM nvidia/cuda:11.8-runtime-ubuntu22.04
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装Python和必要依赖
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装Python依赖
+RUN pip3 install --no-cache-dir \
+    torch==2.0.1+cu118 -f https://download.pytorch.org/whl/torch_stable.html \
+    faster-whisper==0.9.0 \
+    transformers \
+    huggingface-hub
+
+# 设置环境变量
+ENV HF_HOME=/root/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
+ENV CUDA_VISIBLE_DEVICES=0
+
+# 创建缓存目录
+RUN mkdir -p /root/.cache/huggingface
+
+# 默认命令：下载模型
+CMD python3 -c "from faster_whisper import WhisperModel; print('📥 下载Whisper模型...'); model = WhisperModel('base', device='cuda', compute_type='float16'); print('✅ 模型下载完成');"

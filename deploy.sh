@@ -134,6 +134,14 @@ regular_update() {
         fi
     fi
     
+    print_status "初始化Whisper模型..."
+    if ! docker volume inspect video-learning-manager_whisper-models > /dev/null 2>&1; then
+        print_status "首次运行，下载Whisper模型..."
+        docker-compose -f docker-compose.gpu.yml --profile init run --rm whisper-models
+    else
+        print_success "Whisper模型已存在，跳过下载"
+    fi
+    
     print_status "启动服务..."
     docker-compose -f docker-compose.gpu.yml up -d
     
@@ -147,11 +155,14 @@ full_rebuild() {
     print_status "停止现有服务..."
     docker-compose -f docker-compose.gpu.yml down
     
-    print_status "清理Docker资源..."
+    print_status "清理Docker资源（保留模型数据）..."
     docker system prune -f
     
     print_status "强制重新构建（无缓存）..."
     docker-compose -f docker-compose.gpu.yml build --no-cache
+    
+    print_status "重新下载Whisper模型..."
+    docker-compose -f docker-compose.gpu.yml --profile init run --rm whisper-models
     
     print_status "启动服务..."
     docker-compose -f docker-compose.gpu.yml up -d

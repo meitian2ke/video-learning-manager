@@ -1,6 +1,34 @@
 version: '3.8'
 
 services:
+  # Whisper模型初始化服务
+  whisper-models:
+    build:
+      context: .
+      dockerfile: Dockerfile.models
+    container_name: whisper-models-init
+    volumes:
+      - whisper-models:/root/.cache/huggingface
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: python3 -c "
+from faster_whisper import WhisperModel;
+import os;
+print('📥 下载Whisper模型...');
+model = WhisperModel('base', device='cuda', compute_type='float16');
+print('✅ 模型下载完成');
+"
+    profiles:
+      - init
+
   video-learning-manager-gpu:
     build:
       context: .
@@ -13,6 +41,8 @@ services:
       - ./data:/app/data
       - ./local-videos:/app/local-videos
       - ./logs:/app/logs
+      # 共享Whisper模型缓存
+      - whisper-models:/root/.cache/huggingface
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
@@ -94,6 +124,10 @@ services:
     restart: unless-stopped
     profiles:
       - monitoring
+
+volumes:
+  whisper-models:
+    driver: local
 
 networks:
   default:

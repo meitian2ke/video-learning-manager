@@ -37,15 +37,30 @@ cd video-learning-manager
 
 2. **一键GPU部署**
 ```bash
-chmod +x deploy-full-gpu.sh
-./deploy-full-gpu.sh
+chmod +x deploy.sh
+./deploy.sh
 ```
 
 3. **访问应用**
 - 🌐 前端界面: http://your-server-ip (端口80)
 - 🔧 后端API: http://your-server-ip:8000
 - 📚 API文档: http://your-server-ip:8000/docs
-- 📊 GPU监控: http://your-server-ip:9835
+- 📊 GPU监控: http://your-server-ip/api/gpu/status
+
+### 📋 更新方式 - 三种选择
+
+```bash
+# 🔥 热更新（推荐，2-3分钟）- 适用于代码修改
+./deploy.sh hot
+
+# 📦 常规更新（5-10分钟）- 适用于新功能添加  
+./deploy.sh update
+
+# 🔧 完全重构（15-30分钟）- 适用于重大版本更新
+./deploy.sh rebuild
+```
+
+> **💡 推荐**: 日常使用热更新模式，避免网络构建问题
 
 ### CPU版本部署（开发环境）
 

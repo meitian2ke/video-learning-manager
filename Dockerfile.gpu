@@ -36,6 +36,9 @@ RUN python3.11 -m pip install torch torchvision torchaudio \
     -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
+# 先安装faster-whisper和关键依赖（确保安装成功）
+RUN python3.11 -m pip install faster-whisper==0.9.0 transformers huggingface-hub -i https://pypi.tuna.tsinghua.edu.cn/simple/
+
 # 安装其他依赖
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
@@ -50,6 +53,11 @@ RUN mkdir -p /app/data/uploads \
              /app/data/thumbnails \
              /app/data/local-videos \
              /app/logs
+
+# 预下载Whisper模型（确保容器启动时模型可用）
+ENV HF_HOME=/root/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
+RUN python3.11 -c "from faster_whisper import WhisperModel; print('📥 下载medium模型...'); WhisperModel('medium', device='cpu'); print('📥 下载large-v3模型...'); WhisperModel('large-v3', device='cpu'); print('✅ 模型下载完成')"
 
 # 设置权限
 RUN chmod -R 755 /app
