@@ -175,7 +175,7 @@ async def get_scan_status():
         }
 
 @router.post("/process/{video_name}")
-async def process_local_video(video_name: str, background_tasks: BackgroundTasks):
+async def process_local_video(video_name: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """处理指定的本地视频"""
     try:
         watch_dir = Path(settings.LOCAL_VIDEO_DIR)
@@ -190,19 +190,46 @@ async def process_local_video(video_name: str, background_tasks: BackgroundTasks
         if not video_file:
             raise HTTPException(status_code=404, detail="视频文件不存在")
         
+        logger.info(f"开始处理视频: {video_name}, 路径: {video_file}")
+        
+        # 先检查数据库中是否已存在记录
+        video_record = db.query(Video).filter(Video.local_path == str(video_file)).first()
+        
+        if not video_record:
+            # 创建新的视频记录
+            file_stat = video_file.stat()
+            video_record = Video(
+                title=video_file.stem,  # 文件名（不含扩展名）
+                url=f"local://{video_name}",
+                platform="local",
+                local_path=str(video_file),
+                file_size=file_stat.st_size,
+                status="pending"
+            )
+            db.add(video_record)
+            db.commit()
+            db.refresh(video_record)
+            logger.info(f"已创建视频记录: ID={video_record.id}")
+        else:
+            # 更新为处理状态
+            video_record.status = "pending"
+            db.commit()
+            logger.info(f"已更新视频记录状态: ID={video_record.id}")
+        
         # 添加到后台处理队列
-        background_tasks.add_task(process_video_task, str(video_file))
+        background_tasks.add_task(process_video_task, str(video_file), video_record.id)
         
         return {
             "message": f"视频 {video_name} 已加入处理队列",
             "video_name": video_name,
-            "status": "processing"
+            "video_id": video_record.id,
+            "status": "pending"
         }
     except Exception as e:
         logger.error(f"处理本地视频失败: {e}")
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
-async def process_video_task(video_path: str):
+async def process_video_task(video_path: str, video_id: int = None):
     """后台视频处理任务"""
     try:
         from app.services.ai_service import ai_service
@@ -210,33 +237,36 @@ async def process_video_task(video_path: str):
         from pathlib import Path
         import time
         
-        logger.info(f"开始处理视频: {video_path}")
+        logger.info(f"🎬 开始处理视频: {video_path} (ID: {video_id})")
         
         # 查找对应的视频记录
         db = SessionLocal()
         try:
-            video_file_name = Path(video_path).name
-            video = db.query(Video).filter(
-                Video.local_path == video_path
-            ).first()
+            if video_id:
+                video = db.query(Video).filter(Video.id == video_id).first()
+            else:
+                video = db.query(Video).filter(Video.local_path == video_path).first()
             
             if not video:
-                logger.error(f"未找到视频记录: {video_path}")
+                logger.error(f"❌ 未找到视频记录: {video_path} (ID: {video_id})")
                 return
             
             # 更新状态为处理中
+            logger.info(f"📝 更新状态为处理中: {video.title}")
             video.status = "processing"
             db.commit()
             
             # 使用AI服务进行真实的字幕提取
-            logger.info(f"正在使用Whisper处理视频: {video_path}")
+            logger.info(f"🤖 正在使用Whisper处理视频: {video_path}")
+            logger.info(f"📊 视频信息: 文件大小 {video.file_size / (1024*1024):.1f}MB")
             start_time = time.time()
             
             # 直接对视频文件进行转录
             transcript_data = await ai_service.transcribe_video(video_path)
             
             processing_time = int(time.time() - start_time)
-            logger.info(f"字幕提取完成，耗时 {processing_time} 秒")
+            logger.info(f"✅ 字幕提取完成，耗时 {processing_time} 秒")
+            logger.info(f"📝 转录结果长度: {len(transcript_data.get('original_text', '')) if transcript_data else 0} 字符")
             
             # 删除已存在的字幕记录（如果有）
             existing_transcript = db.query(Transcript).filter(Transcript.video_id == video.id).first()
@@ -274,15 +304,58 @@ async def process_video_task(video_path: str):
         logger.error(f"视频处理失败: {video_path}, 错误: {e}")
 
 @router.get("/processing-status")
-async def get_processing_status():
+async def get_processing_status(db: Session = Depends(get_db)):
     """获取所有视频的处理状态"""
     try:
-        # 这里应该从数据库或缓存中获取真实的处理状态
-        # 暂时返回模拟数据
+        # 获取各种状态的视频数量和详情
+        processing_videos = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "processing"
+        ).all()
+        
+        pending_videos = db.query(Video).filter(
+            Video.platform == "local", 
+            Video.status == "pending"
+        ).all()
+        
+        completed_count = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "completed"
+        ).count()
+        
+        failed_count = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "failed"
+        ).count()
+        
+        processing_details = []
+        for video in processing_videos:
+            processing_details.append({
+                "id": video.id,
+                "title": video.title,
+                "file_size_mb": round(video.file_size / (1024*1024), 2) if video.file_size else 0,
+                "updated_at": video.updated_at,
+                "local_path": Path(video.local_path).name if video.local_path else ""
+            })
+        
+        pending_details = []
+        for video in pending_videos:
+            pending_details.append({
+                "id": video.id,
+                "title": video.title,
+                "file_size_mb": round(video.file_size / (1024*1024), 2) if video.file_size else 0,
+                "created_at": video.created_at,
+                "local_path": Path(video.local_path).name if video.local_path else ""
+            })
+        
         return {
-            "processing_videos": [],
-            "completed_count": 0,
-            "failed_count": 0
+            "processing_videos": processing_details,
+            "pending_videos": pending_details,
+            "processing_count": len(processing_videos),
+            "pending_count": len(pending_videos),
+            "completed_count": completed_count,
+            "failed_count": failed_count,
+            "total_local_videos": completed_count + failed_count + len(processing_videos) + len(pending_videos)
         }
     except Exception as e:
         logger.error(f"获取处理状态失败: {e}")
