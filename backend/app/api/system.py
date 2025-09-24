@@ -24,7 +24,7 @@ async def get_system_config():
     """获取系统配置"""
     
     # 检查OpenAI是否可用
-    openai_available = bool(settings.OPENAI_API_KEY and settings.OPENAI_BASE_URL)
+    openai_available = bool(getattr(settings, 'OPENAI_API_KEY', None) and getattr(settings, 'OPENAI_BASE_URL', None))
     
     # 检查本地模型是否可用 (简单检查)
     local_model_available = True  # 始终认为本地模型可用
