@@ -66,8 +66,11 @@ class AITranscriptionService:
                 logger.info(f"🤖 正在加载Whisper模型: {settings.WHISPER_MODEL}")
                 logger.info(f"🎯 设备: {device}, 计算类型: {compute_type}")
                 
+                # 支持两种加载方式：模型名称 或 本地路径
+                model_path_or_name = self._get_model_path_or_name()
+                
                 self.model = WhisperModel(
-                    settings.WHISPER_MODEL,
+                    model_path_or_name,
                     device=device,
                     compute_type=compute_type,
                     num_workers=getattr(settings, 'WHISPER_NUM_WORKERS', 1),
@@ -78,6 +81,21 @@ class AITranscriptionService:
                 logger.error(f"❌ Whisper模型加载失败: {e}")
                 raise Exception(f"模型未安装或损坏，请先手动下载模型: {e}")
         return self.model
+    
+    def _get_model_path_or_name(self) -> str:
+        """获取模型路径或名称"""
+        # 如果是large模型，尝试使用本地路径加载large-v3
+        if settings.WHISPER_MODEL == "large":
+            local_model_path = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3"
+            if os.path.exists(local_model_path):
+                logger.info(f"🎯 使用本地large-v3模型: {local_model_path}")
+                return local_model_path
+            else:
+                logger.info(f"🎯 本地模型不存在，使用标准large模型")
+                return "large"
+        
+        # 其他情况直接使用模型名称
+        return settings.WHISPER_MODEL
     
     def _choose_device(self) -> str:
         """智能选择计算设备"""
