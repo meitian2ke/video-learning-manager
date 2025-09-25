@@ -19,7 +19,7 @@ services:
     environment:
       # 生产环境配置
       - ENVIRONMENT=production
-      - WHISPER_MODEL=large-v3-turbo
+      - WHISPER_MODEL=large-v3
       - WHISPER_DEVICE=cuda
       - WHISPER_COMPUTE_TYPE=float16
       - MAX_CONCURRENT_TRANSCRIPTIONS=3
