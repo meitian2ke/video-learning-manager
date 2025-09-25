@@ -15,8 +15,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# 创建信号量控制并发转录数量
-transcription_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TRANSCRIPTIONS)
+# 信号量将在运行时创建，避免事件循环绑定问题
+transcription_semaphore = None
+
+def get_transcription_semaphore():
+    """获取或创建转录信号量"""
+    global transcription_semaphore
+    if transcription_semaphore is None:
+        transcription_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TRANSCRIPTIONS)
+    return transcription_semaphore
 
 class AITranscriptionService:
     def __init__(self):
@@ -245,9 +252,10 @@ class AITranscriptionService:
     
     async def transcribe_audio(self, audio_path: str) -> Dict:
         """转录音频为文字（带并发控制）"""
-        async with transcription_semaphore:  # 控制并发数量
+        semaphore = get_transcription_semaphore()
+        async with semaphore:  # 控制并发数量
             try:
-                logger.info(f"开始转录音频: {audio_path} (当前可用槽位: {transcription_semaphore._value})")
+                logger.info(f"开始转录音频: {audio_path} (当前可用槽位: {semaphore._value})")
                 
                 if not self.model:
                     self._ensure_model_loaded()
@@ -528,10 +536,11 @@ class AITranscriptionService:
     
     async def transcribe_video(self, video_path: str) -> Dict:
         """智能转录视频文件（带并发控制和负载监控）"""
-        async with transcription_semaphore:  # 控制并发数量
+        semaphore = get_transcription_semaphore()
+        async with semaphore:  # 控制并发数量
             try:
                 logger.info(f"🎬 开始转录视频: {os.path.basename(video_path)}")
-                logger.info(f"📊 当前可用槽位: {transcription_semaphore._value}")
+                logger.info(f"📊 当前可用槽位: {semaphore._value})")
                 
                 # 记录系统状态
                 system_monitor.log_system_status()
