@@ -84,15 +84,16 @@ class AITranscriptionService:
     
     def _get_model_path_or_name(self) -> str:
         """获取模型路径或名称"""
-        # 如果是large模型，尝试使用本地路径加载large-v3
+        # 如果是large模型，强制使用本地路径加载large-v3
         if settings.WHISPER_MODEL == "large":
             local_model_path = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3"
             if os.path.exists(local_model_path):
                 logger.info(f"🎯 使用本地large-v3模型: {local_model_path}")
                 return local_model_path
             else:
-                logger.info(f"🎯 本地模型不存在，使用标准large模型")
-                return "large"
+                error_msg = f"❌ 本地模型不存在: {local_model_path}\n请先下载faster-whisper-large-v3模型到指定目录"
+                logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
         
         # 其他情况直接使用模型名称
         return settings.WHISPER_MODEL
