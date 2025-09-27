@@ -596,9 +596,7 @@ class AITranscriptionService:
                 segments, info = self.model.transcribe(
                     video_path,
                     language="zh",  # 指定为中文
-                    task="transcribe",
-                    # 添加调试参数
-                    verbose=True
+                    task="transcribe"
                 )
                 logger.info(f"🎵 音频信息 - 语言: {info.language}, 置信度: {info.language_probability:.3f}")
                 logger.info(f"⏱️ 音频时长: {info.duration:.2f}秒")
@@ -621,9 +619,8 @@ class AITranscriptionService:
                 try:
                     segments, info = self.model.transcribe(
                         video_path,
-                        task="transcribe",
+                        task="transcribe"
                         # 去掉语言指定，让模型自动检测
-                        verbose=True
                     )
                     logger.info("🎉 去掉语言指定后成功!")
                 except Exception as retry_error:
