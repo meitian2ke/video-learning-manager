@@ -16,7 +16,18 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装cuDNN 9.1 for CUDA 11.8 - 解决GPU兼容性问题
+# 下载并安装cuDNN 9.1来解决"Unable to load libcudnn_ops.so.9.1.0"错误
+RUN wget -q https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/linux-x86_64/cudnn-linux-x86_64-9.1.0.70_cuda11-archive.tar.xz \
+    && tar -xf cudnn-linux-x86_64-9.1.0.70_cuda11-archive.tar.xz \
+    && cp cudnn-linux-x86_64-9.1.0.70_cuda11-archive/lib/* /usr/local/cuda/lib64/ \
+    && cp cudnn-linux-x86_64-9.1.0.70_cuda11-archive/include/* /usr/local/cuda/include/ \
+    && rm -rf cudnn-linux-x86_64-9.1.0.70_cuda11-archive* \
+    && echo "/usr/local/cuda/lib64" >> /etc/ld.so.conf.d/cuda.conf \
+    && ldconfig
 
 # 设置工作目录
 WORKDIR /app
