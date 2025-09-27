@@ -583,13 +583,52 @@ class AITranscriptionService:
             # 确保模型已加载
             self._ensure_model_loaded()
             
+            # 添加详细调试信息
+            logger.info(f"🎥 开始处理视频: {video_path}")
+            logger.info(f"🤖 模型信息: {type(self.model).__name__}")
+            logger.info(f"💻 设备: {self._choose_device()}")
+            logger.info(f"🔢 计算类型: {self._choose_compute_type()}")
+            
             # faster-whisper 可以直接处理视频文件
             logger.info("正在使用本地Whisper模型转录视频...")
-            segments, info = self.model.transcribe(
-                video_path,
-                language="zh",  # 指定为中文
-                task="transcribe"
-            )
+            
+            try:
+                segments, info = self.model.transcribe(
+                    video_path,
+                    language="zh",  # 指定为中文
+                    task="transcribe",
+                    # 添加调试参数
+                    verbose=True
+                )
+                logger.info(f"🎵 音频信息 - 语言: {info.language}, 置信度: {info.language_probability:.3f}")
+                logger.info(f"⏱️ 音频时长: {info.duration:.2f}秒")
+                
+            except Exception as transcribe_error:
+                logger.error(f"🚫 转录失败详细信息: {transcribe_error}")
+                logger.error(f"🔍 错误类型: {type(transcribe_error).__name__}")
+                
+                # 尝试获取更多信息
+                import traceback
+                logger.error(f"📋 完整堆栈信息:\n{traceback.format_exc()}")
+                
+                # 检查文件信息
+                from pathlib import Path
+                video_file = Path(video_path)
+                logger.info(f"📁 文件信息: 大小={video_file.stat().st_size} bytes, 存在={video_file.exists()}")
+                
+                # 尝试不同参数
+                logger.info("🔄 尝试不同参数转录...")
+                try:
+                    segments, info = self.model.transcribe(
+                        video_path,
+                        task="transcribe",
+                        # 去掉语言指定，让模型自动检测
+                        verbose=True
+                    )
+                    logger.info("🎉 去掉语言指定后成功!")
+                except Exception as retry_error:
+                    logger.error(f"🚫 重试仍然失败: {retry_error}")
+                    raise transcribe_error  # 抛出原始错误
             
             # 收集转录结果
             transcript_segments = []
@@ -640,7 +679,13 @@ class AITranscriptionService:
             }
                 
         except Exception as e:
-            logger.error(f"转录视频失败: {e} (释放槽位)")
+            logger.error(f"🚫 转录视频失败: {e} (释放槽位)")
+            logger.error(f"🔍 错误类型: {type(e).__name__}")
+            
+            # 详细错误信息
+            import traceback
+            logger.error(f"📋 完整错误堆栈:\n{traceback.format_exc()}")
+            
             # 返回错误信息而不是抛出异常
             return {
                 "original_text": f"转录失败: {str(e)}",

@@ -544,6 +544,111 @@ async def quick_debug_video(video_name: str):
             "video_name": video_name
         }
 
+@router.post("/deep-debug/{video_name}")
+async def deep_debug_whisper(video_name: str):
+    """深度debug faster-whisper音频维度问题"""
+    try:
+        from app.services.ai_service import ai_service
+        import torch
+        from pathlib import Path
+        
+        # 文件检查
+        watch_dir = Path(settings.LOCAL_VIDEO_DIR)
+        video_file = None
+        for file_path in watch_dir.rglob('*'):
+            if file_path.name == video_name:
+                video_file = file_path
+                break
+        
+        if not video_file:
+            return {"error": f"视频文件不存在: {video_name}"}
+        
+        video_path = str(video_file)
+        debug_info = {
+            "video_file": video_path,
+            "file_size_mb": round(video_file.stat().st_size / 1024 / 1024, 2),
+            "steps": []
+        }
+        
+        # 步骤1: 检查模型状态
+        debug_info["steps"].append({
+            "step": "model_check",
+            "model_loaded": ai_service.model is not None,
+            "device": ai_service._choose_device(),
+            "compute_type": ai_service._choose_compute_type()
+        })
+        
+        # 步骤2: 尝试加载模型
+        try:
+            ai_service._ensure_model_loaded()
+            debug_info["steps"].append({
+                "step": "model_loaded",
+                "status": "success",
+                "model_type": type(ai_service.model).__name__
+            })
+        except Exception as e:
+            debug_info["steps"].append({
+                "step": "model_load_failed",
+                "status": "error",
+                "error": str(e)
+            })
+            return debug_info
+        
+        # 步骤3: 测试不同参数的转录
+        test_params = [
+            {"name": "default", "params": {"language": "zh", "task": "transcribe"}},
+            {"name": "auto_detect", "params": {"task": "transcribe"}},
+            {"name": "english", "params": {"language": "en", "task": "transcribe"}},
+            {"name": "no_language", "params": {"task": "transcribe", "beam_size": 1}}
+        ]
+        
+        for test in test_params:
+            try:
+                segments, info = ai_service.model.transcribe(video_path, **test["params"])
+                
+                # 收集一些结果
+                segment_count = 0
+                first_text = ""
+                for segment in segments:
+                    segment_count += 1
+                    if segment_count == 1:
+                        first_text = segment.text[:50]  # 只取前50个字符
+                    if segment_count >= 3:  # 只处理前3个片段
+                        break
+                
+                debug_info["steps"].append({
+                    "step": f"transcribe_{test['name']}",
+                    "status": "success",
+                    "params": test["params"],
+                    "language_detected": info.language,
+                    "confidence": info.language_probability,
+                    "duration": info.duration,
+                    "segments_processed": segment_count,
+                    "first_text": first_text
+                })
+                
+                # 如果成功，直接返回
+                return debug_info
+                
+            except Exception as e:
+                debug_info["steps"].append({
+                    "step": f"transcribe_{test['name']}",
+                    "status": "error",
+                    "params": test["params"],
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                continue
+        
+        return debug_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "video_name": video_name,
+            "error_type": type(e).__name__
+        }
+
         processing_videos = db.query(Video).filter(
             Video.platform == "local",
             Video.status == "processing"
