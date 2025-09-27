@@ -488,6 +488,22 @@ async def get_processing_status(db: Session = Depends(get_db)):
     """获取所有视频的处理状态"""
     try:
         # 获取各种状态的视频数量和详情
+        processing_videos = db.query(Video).filter(
+            Video.status.in_(["processing", "pending"])
+        ).all()
+        
+        return {
+            "processing_count": len(processing_videos),
+            "videos": [{
+                "id": v.id,
+                "title": v.title,
+                "status": v.status
+            } for v in processing_videos]
+        }
+    except Exception as e:
+        logger.error(f"获取处理状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/quick-debug/{video_name}")
 async def quick_debug_video(video_name: str):
     """快速debug接口 - 只检查基础信息"""
