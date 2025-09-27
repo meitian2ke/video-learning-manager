@@ -4,9 +4,12 @@
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
-from typing import List
+from typing import List, Dict, Any
 import logging
+import traceback
+import torch
 from pathlib import Path
+from datetime import datetime
 
 from app.core.config import settings
 from app.services.local_video_scanner import get_scanner
@@ -174,6 +177,138 @@ async def get_scan_status():
             "error": str(e)
         }
 
+@router.post("/debug-process/{video_name}")
+async def debug_process_video(video_name: str, db: Session = Depends(get_db)):
+    """Debug模式处理视频 - 返回详细步骤信息"""
+    debug_steps = []
+    video_path = None
+    
+    def add_debug_step(step: str, status: str, message: str, details: Dict[str, Any] = None):
+        debug_steps.append({
+            "step": step,
+            "status": status,  # "success", "error", "running" 
+            "message": message,
+            "details": details or {},
+            "timestamp": datetime.now().isoformat()
+        })
+    
+    try:
+        # 步骤1: 文件定位
+        add_debug_step("1_file_location", "running", "正在定位视频文件...")
+        
+        watch_dir = Path(settings.LOCAL_VIDEO_DIR)
+        video_file = None
+        
+        for file_path in watch_dir.rglob('*'):
+            if file_path.name == video_name:
+                video_file = file_path
+                break
+        
+        if not video_file:
+            add_debug_step("1_file_location", "error", f"视频文件不存在: {video_name}")
+            return {"video_name": video_name, "debug_steps": debug_steps}
+        
+        video_path = str(video_file)
+        file_size = video_file.stat().st_size
+        add_debug_step("1_file_location", "success", f"找到视频文件: {video_path}", {
+            "file_size": file_size,
+            "file_size_mb": round(file_size / 1024 / 1024, 2)
+        })
+        
+        # 步骤2: 系统环境检查
+        add_debug_step("2_system_check", "running", "检查系统环境...")
+        
+        system_info = {
+            "cuda_available": torch.cuda.is_available(),
+            "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            "environment": settings.ENVIRONMENT,
+            "whisper_model": settings.WHISPER_MODEL,
+            "whisper_device": settings.WHISPER_DEVICE
+        }
+        
+        if torch.cuda.is_available():
+            system_info["gpu_name"] = torch.cuda.get_device_name(0)
+            system_info["gpu_memory_allocated"] = torch.cuda.memory_allocated()
+            system_info["gpu_memory_reserved"] = torch.cuda.memory_reserved()
+        
+        add_debug_step("2_system_check", "success", "系统环境检查完成", system_info)
+        
+        # 步骤3: 模型加载测试
+        add_debug_step("3_model_loading", "running", "测试模型加载...")
+        
+        from app.services.ai_service import ai_service
+        
+        try:
+            # 检查模型路径/名称
+            model_path_or_name = ai_service._get_model_path_or_name()
+            model_details = {
+                "model_path_or_name": model_path_or_name,
+                "is_local_path": model_path_or_name.startswith("/"),
+                "device": ai_service._choose_device(),
+                "compute_type": ai_service._choose_compute_type()
+            }
+            
+            # 如果是本地路径，检查文件是否存在
+            if model_path_or_name.startswith("/"):
+                model_details["path_exists"] = Path(model_path_or_name).exists()
+            
+            # 尝试加载模型
+            ai_service._ensure_model_loaded()
+            model_details["model_loaded"] = ai_service.model is not None
+            model_details["model_type"] = type(ai_service.model).__name__ if ai_service.model else None
+            
+            add_debug_step("3_model_loading", "success", "模型加载成功", model_details)
+            
+        except Exception as e:
+            add_debug_step("3_model_loading", "error", f"模型加载失败: {str(e)}", {
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
+            return {"video_name": video_name, "video_path": video_path, "debug_steps": debug_steps}
+        
+        # 步骤4: 视频处理测试
+        add_debug_step("4_video_processing", "running", "开始视频处理...")
+        
+        try:
+            result = await ai_service.transcribe_video(video_path)
+            
+            processing_details = {
+                "transcription_length": len(result.get("original_text", "")),
+                "language": result.get("language", "unknown"),
+                "confidence_score": result.get("confidence_score", 0),
+                "segments_count": len(result.get("segments", [])),
+                "has_summary": bool(result.get("summary")),
+                "has_tags": bool(result.get("tags"))
+            }
+            
+            add_debug_step("4_video_processing", "success", "视频处理完成", processing_details)
+            
+            return {
+                "video_name": video_name,
+                "video_path": video_path,
+                "debug_steps": debug_steps,
+                "result": {
+                    "original_text": result.get("original_text", "")[:200] + "..." if len(result.get("original_text", "")) > 200 else result.get("original_text", ""),
+                    "summary": result.get("summary", ""),
+                    "language": result.get("language", "unknown"),
+                    "confidence_score": result.get("confidence_score", 0)
+                }
+            }
+            
+        except Exception as e:
+            add_debug_step("4_video_processing", "error", f"视频处理失败: {str(e)}", {
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            })
+            return {"video_name": video_name, "video_path": video_path, "debug_steps": debug_steps}
+            
+    except Exception as e:
+        add_debug_step("system_error", "error", f"系统错误: {str(e)}", {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
+        return {"video_name": video_name, "video_path": video_path, "debug_steps": debug_steps}
+
 @router.post("/process/{video_name}")
 async def process_local_video(video_name: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """处理指定的本地视频"""
@@ -228,6 +363,51 @@ async def process_local_video(video_name: str, background_tasks: BackgroundTasks
     except Exception as e:
         logger.error(f"处理本地视频失败: {e}")
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+@router.get("/model-status")
+async def get_model_status():
+    """获取模型状态信息"""
+    try:
+        from app.services.ai_service import ai_service
+        
+        status_info = {
+            "model_name": settings.WHISPER_MODEL,
+            "device": ai_service._choose_device(),
+            "compute_type": ai_service._choose_compute_type(),
+            "environment": ai_service.environment,
+            "model_loaded": ai_service.model is not None,
+            "cuda_available": torch.cuda.is_available(),
+            "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
+        }
+        
+        # 尝试获取模型路径信息
+        try:
+            model_path_or_name = ai_service._get_model_path_or_name()
+            status_info["model_path_or_name"] = model_path_or_name
+            
+            if model_path_or_name.startswith("/"):
+                status_info["is_local_model"] = True
+                status_info["model_path_exists"] = Path(model_path_or_name).exists()
+            else:
+                status_info["is_local_model"] = False
+        except Exception as e:
+            status_info["model_path_error"] = str(e)
+        
+        # GPU信息
+        if torch.cuda.is_available():
+            status_info["gpu_info"] = {
+                "gpu_name": torch.cuda.get_device_name(0),
+                "memory_allocated_mb": round(torch.cuda.memory_allocated() / 1024 / 1024, 2),
+                "memory_reserved_mb": round(torch.cuda.memory_reserved() / 1024 / 1024, 2)
+            }
+        
+        return status_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 async def process_video_task(video_path: str, video_id: int = None):
     """后台视频处理任务"""
@@ -308,6 +488,46 @@ async def get_processing_status(db: Session = Depends(get_db)):
     """获取所有视频的处理状态"""
     try:
         # 获取各种状态的视频数量和详情
+@router.get("/quick-debug/{video_name}")
+async def quick_debug_video(video_name: str):
+    """快速debug接口 - 只检查基础信息"""
+    try:
+        # 文件检查
+        watch_dir = Path(settings.LOCAL_VIDEO_DIR)
+        video_file = None
+        
+        for file_path in watch_dir.rglob('*'):
+            if file_path.name == video_name:
+                video_file = file_path
+                break
+        
+        if not video_file:
+            return {"error": f"视频文件不存在: {video_name}"}
+        
+        # 基础信息
+        file_size = video_file.stat().st_size
+        
+        # 模型状态快速检查
+        from app.services.ai_service import ai_service
+        
+        quick_info = {
+            "video_found": True,
+            "video_path": str(video_file),
+            "file_size_mb": round(file_size / 1024 / 1024, 2),
+            "cuda_available": torch.cuda.is_available(),
+            "model_loaded": ai_service.model is not None,
+            "whisper_device": settings.WHISPER_DEVICE,
+            "whisper_model": settings.WHISPER_MODEL
+        }
+        
+        return quick_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "video_name": video_name
+        }
+
         processing_videos = db.query(Video).filter(
             Video.platform == "local",
             Video.status == "processing"

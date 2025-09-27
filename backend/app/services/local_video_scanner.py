@@ -65,8 +65,21 @@ class VideoFileHandler(FileSystemEventHandler):
             logger.error(f"安排处理任务失败: {e}")
     
     def _is_video_file(self, file_path: str) -> bool:
-        """检查是否为支持的视频文件"""
-        return Path(file_path).suffix.lower() in self.SUPPORTED_EXTENSIONS
+        """检查是否为支持的视频文件（过滤缓存文件）"""
+        file_path_obj = Path(file_path)
+        
+        # 过滤系统缓存文件和临时文件
+        if file_path_obj.name.startswith('._'):
+            logger.debug(f"跳过缓存文件: {file_path_obj.name}")
+            return False
+        if file_path_obj.name.startswith('.DS_Store'):
+            logger.debug(f"跳过系统文件: {file_path_obj.name}")
+            return False
+        if any(file_path_obj.name.endswith(ext) for ext in ['.tmp', '.partial', '.crdownload']):
+            logger.debug(f"跳过临时文件: {file_path_obj.name}")
+            return False
+            
+        return file_path_obj.suffix.lower() in self.SUPPORTED_EXTENSIONS
 
 class LocalVideoScanner:
     """本地视频扫描器"""
