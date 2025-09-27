@@ -354,15 +354,18 @@ class LocalVideoScanner:
                     db.add(transcript)
                     logger.info(f"字幕记录已保存到数据库")
                     
+                    # 更新为完成状态
+                    if video:
+                        video.status = "completed"
+                        db.commit()
+                        
                 except Exception as transcribe_error:
                     logger.error(f"字幕提取失败: {transcribe_error}")
-                    # 即使字幕提取失败，也标记视频为已完成，但没有字幕
                     processing_time = int(time.time() - start_time)
-                
-                # 更新为完成状态
-                if video:
-                    video.status = "completed"
-                    db.commit()
+                    # 转录失败，标记为失败状态
+                    if video:
+                        video.status = "failed"
+                        db.commit()
                     
             except Exception as e:
                 logger.error(f"处理视频 {video_id} 失败: {e}")
