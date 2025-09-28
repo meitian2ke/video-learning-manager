@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   video-learning-manager-gpu:
-    build:
-      context: .
-      dockerfile: ${DOCKERFILE:-Dockerfile.gpu}
+    image: video-learning-manager-gpu:optimized
     container_name: video-learning-manager-gpu
     ports:
       - "8000:8000"
