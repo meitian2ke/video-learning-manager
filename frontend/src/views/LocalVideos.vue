@@ -263,7 +263,7 @@
     <el-dialog v-model="previewDialog" title="视频预览" width="70%">
       <div v-if="selectedPreviewVideo">
         <video 
-          :src="`http://localhost:8000/api/local-videos/file/${selectedPreviewVideo.name}`" 
+          :src="`/api/local-videos/file/${selectedPreviewVideo.name}`" 
           controls 
           style="width: 100%; max-height: 400px;"
         >
