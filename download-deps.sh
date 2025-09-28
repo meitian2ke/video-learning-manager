@@ -19,9 +19,10 @@ echo "🐍 2. 下载PyTorch wheels (约4GB)..."
 mkdir -p torch_wheels
 cd torch_wheels
 
-# PyTorch GPU版本wheels
+# PyTorch GPU版本wheels (明确指定CUDA 11.8版本)
 if [ ! -f "torch-*.whl" ]; then
-    python3 -m pip download torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu118 --dest .
+    python3 -m pip download torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio==2.1.0+cu118 \
+        --extra-index-url https://download.pytorch.org/whl/cu118 --dest .
 else
     echo "✅ PyTorch wheels已存在，跳过"
 fi
