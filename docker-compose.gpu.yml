@@ -11,7 +11,9 @@ services:
       - ./data:/app/data
       - ./local-videos:/app/local-videos
       - ./logs:/app/logs
-      # GPU访问（模型已打入镜像，无需挂载）
+      # 挂载本地模型目录
+      - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
+      # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
     environment:
