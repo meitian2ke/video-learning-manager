@@ -2,8 +2,47 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
+import logging
+import sys
+from pathlib import Path
 from app.core.database import init_db
 from app.api import videos, transcripts, learning, local_videos, system, system_status, gpu_monitor, system_monitor
+
+# 配置详细日志
+def setup_logging():
+    # 确保日志目录存在
+    log_dir = Path("/app/logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # 创建格式化器
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+    )
+    
+    # 文件处理器 - 详细日志
+    file_handler = logging.FileHandler('/app/logs/video_processing.log', encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    
+    # 控制台处理器 - 基本日志
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # 配置根日志器
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # 配置FastAPI相关日志
+    logging.getLogger("fastapi").setLevel(logging.INFO)
+    logging.getLogger("uvicorn").setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.DEBUG)
+    
+    logging.info("=== 视频学习管理器启动 ===")
+
+setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

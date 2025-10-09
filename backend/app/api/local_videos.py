@@ -89,6 +89,7 @@ async def stop_watching():
 async def list_local_videos(db: Session = Depends(get_db)):
     """获取本地视频文件列表（与数据库状态同步）"""
     try:
+        logger.info("开始获取本地视频列表")
         watch_dir = Path(settings.LOCAL_VIDEO_DIR)
         if not watch_dir.exists():
             return {"videos": [], "message": "监控目录不存在"}
@@ -154,8 +155,10 @@ async def list_local_videos(db: Session = Depends(get_db)):
             "watch_directory": str(settings.LOCAL_VIDEO_DIR)
         }
     except Exception as e:
-        logger.error(f"获取本地视频列表失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取视频列表失败: {str(e)}")
+        import traceback
+        error_detail = f"获取本地视频列表失败: {str(e)}"
+        logger.error(f"{error_detail}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.get("/status")
 async def get_scan_status():
