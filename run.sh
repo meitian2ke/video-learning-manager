@@ -249,8 +249,9 @@ manage_models() {
     echo "模型管理选项："
     echo "1) 检查模型状态"
     echo "2) 验证模型功能"
-    echo "3) 模型信息"
-    read -p "请选择 (1-3): " choice
+    echo "3) 下载模型"
+    echo "4) 模型信息"
+    read -p "请选择 (1-4): " choice
     
     case $choice in
         1)
@@ -271,11 +272,27 @@ manage_models() {
             fi
             ;;
         3)
+            print_status "下载Whisper模型..."
+            print_warning "这将下载模型到Docker volume中"
+            read -p "确认下载? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_status "构建模型下载镜像..."
+                $DOCKER_COMPOSE -f docker-compose.gpu.yml build whisper-models
+                print_status "开始下载模型..."
+                $DOCKER_COMPOSE -f docker-compose.gpu.yml --profile init run --rm whisper-models
+                print_success "模型下载完成"
+            else
+                print_status "下载已取消"
+            fi
+            ;;
+        4)
             echo "模型配置信息:"
             echo "  模型名称: faster-whisper-large-v3"
             echo "  设备类型: CUDA GPU"
             echo "  计算类型: float16"
             echo "  本地路径: ./models/faster-whisper-large-v3"
+            echo "  Docker volume: whisper-models"
             ;;
     esac
 }

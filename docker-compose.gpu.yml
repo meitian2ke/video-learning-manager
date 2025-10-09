@@ -95,6 +95,30 @@ services:
     profiles:
       - monitoring
 
+  # Whisper模型下载服务
+  whisper-models:
+    build:
+      context: .
+      dockerfile: Dockerfile.models
+    container_name: whisper-models-downloader
+    volumes:
+      - whisper-models:/root/.cache/huggingface
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles:
+      - init
+
+volumes:
+  whisper-models:
+    driver: local
+
 networks:
   default:
     name: video-learning-network
