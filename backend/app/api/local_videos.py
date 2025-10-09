@@ -109,7 +109,10 @@ async def list_local_videos(db: Session = Depends(get_db)):
                 }
         
         for file_path in watch_dir.rglob('*'):
-            if file_path.is_file() and file_path.suffix.lower() in video_extensions:
+            if (file_path.is_file() and 
+                file_path.suffix.lower() in video_extensions and
+                not file_path.name.startswith('._') and  # 过滤macOS元数据文件
+                not file_path.name.startswith('.DS_Store')):
                 stat = file_path.stat()
                 file_name = file_path.name
                 
