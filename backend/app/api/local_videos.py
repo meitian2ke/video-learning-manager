@@ -438,7 +438,8 @@ async def process_video_task(video_path: str, video_id: int = None):
             
             # 使用AI服务进行真实的字幕提取
             logger.info(f"🤖 正在使用Whisper处理视频: {video_path}")
-            logger.info(f"📊 视频信息: 文件大小 {video.file_size / (1024*1024):.1f}MB")
+            file_size_mb = (video.file_size / (1024*1024)) if video.file_size else 0
+            logger.info(f"📊 视频信息: 文件大小 {file_size_mb:.1f}MB")
             start_time = time.time()
             
             # 直接对视频文件进行转录
