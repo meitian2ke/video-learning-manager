@@ -82,14 +82,18 @@ check_requirements() {
     print_success "系统要求检查通过！"
 }
 
-# 拉取代码
+# 拉取代码（强制同步远程 main 分支）
 update_code() {
     print_status "拉取最新代码..."
-    git stash 2>/dev/null || true
-    if git pull origin main; then
-        print_success "代码更新成功"
+
+    # 先暂存当前修改（避免报错，但我们不会再恢复 stash）
+    git stash push --include-untracked -m "auto-stash-before-update" >/dev/null 2>&1 || true
+
+    # 强制同步远程仓库
+    if git fetch origin main && git reset --hard origin/main; then
+        print_success "代码更新成功 ✅（已强制与远程 main 同步）"
     else
-        print_error "代码更新失败"
+        print_error "代码更新失败 ❌"
         exit 1
     fi
 }
