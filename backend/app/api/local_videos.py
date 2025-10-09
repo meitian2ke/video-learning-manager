@@ -13,7 +13,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.services.local_video_scanner import get_scanner
-from app.core.database import get_db, Video, Transcript
+from app.core.database import get_db, Video, Transcript, SessionLocal
 from sqlalchemy.orm import Session
 from fastapi import Depends
 import os
@@ -477,9 +477,16 @@ async def process_video_task(video_path: str, video_id: int = None):
             
         except Exception as e:
             logger.error(f"处理视频失败: {video_path}, 错误: {e}")
-            # 更新为失败状态
+            # 检查重试次数，实现队列重试机制
             if 'video' in locals():
-                video.status = "failed"
+                retry_count = video.retry_count or 0
+                if retry_count < 3:  # 最多重试3次
+                    video.status = "pending"  # 重新排队
+                    video.retry_count = retry_count + 1
+                    logger.info(f"处理失败，重新排队重试 ({retry_count + 1}/3): {video_path}")
+                else:
+                    video.status = "failed"  # 重试次数用完，标记为失败
+                    logger.error(f"处理失败次数过多，标记为失败: {video_path}")
                 db.commit()
         finally:
             db.close()
@@ -796,6 +803,7 @@ async def get_video_detail(video_id: int, db: Session = Depends(get_db)):
                 "file_fingerprint": video.file_fingerprint,
                 "duration": video.duration,
                 "file_size": video.file_size,
+                "retry_count": video.retry_count,
                 "created_at": video.created_at,
                 "updated_at": video.updated_at
             },
@@ -818,3 +826,306 @@ async def get_video_detail(video_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"获取视频详情失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取视频详情失败: {str(e)}")
+
+@router.post("/reset-failed")
+async def reset_failed_videos(db: Session = Depends(get_db)):
+    """重置所有失败的视频状态，允许重新处理"""
+    try:
+        # 查找所有失败的本地视频
+        failed_videos = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "failed"
+        ).all()
+        
+        reset_count = 0
+        for video in failed_videos:
+            video.status = "pending"
+            video.retry_count = 0  # 重置重试次数
+            reset_count += 1
+        
+        db.commit()
+        
+        logger.info(f"已重置 {reset_count} 个失败视频的状态")
+        
+        return {
+            "message": f"已重置 {reset_count} 个失败视频，可重新处理",
+            "reset_count": reset_count
+        }
+        
+    except Exception as e:
+        logger.error(f"重置失败视频状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")
+
+@router.post("/reset-video/{video_name}")
+async def reset_single_video(video_name: str, db: Session = Depends(get_db)):
+    """重置单个视频的失败状态"""
+    try:
+        watch_dir = Path(settings.LOCAL_VIDEO_DIR)
+        video_file = None
+        
+        # 查找视频文件
+        for file_path in watch_dir.rglob('*'):
+            if file_path.name == video_name:
+                video_file = file_path
+                break
+        
+        if not video_file:
+            raise HTTPException(status_code=404, detail="视频文件不存在")
+        
+        # 查找数据库记录
+        video = db.query(Video).filter(Video.local_path == str(video_file)).first()
+        if not video:
+            raise HTTPException(status_code=404, detail="视频记录不存在")
+        
+        # 重置状态
+        video.status = "pending"
+        video.retry_count = 0
+        db.commit()
+        
+        logger.info(f"已重置视频状态: {video_name}")
+        
+        return {
+            "message": f"视频 {video_name} 状态已重置，可重新处理",
+            "video_id": video.id,
+            "status": "pending"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"重置视频状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"重置失败: {str(e)}")
+
+@router.get("/logs")
+async def get_processing_logs():
+    """获取视频处理日志"""
+    try:
+        from app.core.config import settings
+        import os
+        
+        # 获取日志文件路径
+        log_dir = Path(settings.UPLOAD_DIR).parent / "logs"
+        log_file = log_dir / "video_processing.log"
+        
+        if not log_file.exists():
+            return {
+                "logs": [],
+                "message": "暂无处理日志"
+            }
+        
+        # 读取最新的100行日志
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            recent_logs = lines[-100:] if len(lines) > 100 else lines
+        
+        return {
+            "logs": [line.strip() for line in recent_logs],
+            "total_lines": len(lines),
+            "showing_recent": len(recent_logs)
+        }
+        
+    except Exception as e:
+        logger.error(f"获取处理日志失败: {e}")
+        return {
+            "logs": [f"获取日志失败: {str(e)}"],
+            "error": True
+        }
+
+@router.get("/logs/live")
+async def get_live_logs():
+    """获取实时处理日志（最新50行）"""
+    try:
+        from app.core.config import settings
+        
+        log_dir = Path(settings.UPLOAD_DIR).parent / "logs"
+        log_file = log_dir / "video_processing.log"
+        
+        if not log_file.exists():
+            return {"logs": ["日志文件不存在"]}
+        
+        # 读取最新的50行
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            recent_logs = lines[-50:] if len(lines) > 50 else lines
+        
+        return {
+            "logs": [line.strip() for line in recent_logs if line.strip()],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"获取实时日志失败: {e}")
+        return {"logs": [f"获取日志失败: {str(e)}"]}
+
+@router.get("/debug-system")
+async def debug_system_status():
+    """调试系统状态 - 检查GPU、模型、队列等"""
+    try:
+        import torch
+        import psutil
+        from app.services.ai_service import ai_service
+        
+        debug_info = {
+            "timestamp": datetime.now().isoformat(),
+            "system": {
+                "cpu_percent": psutil.cpu_percent(),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_usage": psutil.disk_usage('/').percent
+            },
+            "gpu": {
+                "available": torch.cuda.is_available(),
+                "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
+            },
+            "whisper": {
+                "model_loaded": ai_service.model is not None,
+                "model_name": settings.WHISPER_MODEL,
+                "device": settings.WHISPER_DEVICE,
+                "compute_type": settings.WHISPER_COMPUTE_TYPE
+            },
+            "environment": {
+                "transcription_mode": settings.TRANSCRIPTION_MODE,
+                "max_concurrent": settings.MAX_CONCURRENT_TRANSCRIPTIONS,
+                "queue_size": settings.TRANSCRIPTION_QUEUE_SIZE
+            }
+        }
+        
+        # GPU详细信息
+        if torch.cuda.is_available():
+            debug_info["gpu"].update({
+                "name": torch.cuda.get_device_name(0),
+                "memory_allocated_mb": round(torch.cuda.memory_allocated() / 1024 / 1024, 2),
+                "memory_reserved_mb": round(torch.cuda.memory_reserved() / 1024 / 1024, 2),
+                "memory_total_mb": round(torch.cuda.get_device_properties(0).total_memory / 1024 / 1024, 2)
+            })
+        
+        # 检查处理队列状态
+        with SessionLocal() as db:
+            queue_status = {
+                "pending": db.query(Video).filter(Video.status == "pending", Video.platform == "local").count(),
+                "processing": db.query(Video).filter(Video.status == "processing", Video.platform == "local").count(),
+                "completed": db.query(Video).filter(Video.status == "completed", Video.platform == "local").count(),
+                "failed": db.query(Video).filter(Video.status == "failed", Video.platform == "local").count()
+            }
+            debug_info["queue"] = queue_status
+        
+        return debug_info
+        
+    except Exception as e:
+        logger.error(f"获取系统调试信息失败: {e}")
+        return {
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.post("/force-reset-processing")
+async def force_reset_processing(db: Session = Depends(get_db)):
+    """强制重置所有处理中状态的视频 - 解决队列卡住问题"""
+    try:
+        # 查找所有处理中的本地视频
+        processing_videos = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "processing"
+        ).all()
+        
+        reset_count = 0
+        for video in processing_videos:
+            # 检查视频是否真的还在处理中（简单检查：超过30分钟的处理认为是卡住了）
+            if video.updated_at:
+                time_diff = datetime.utcnow() - video.updated_at
+                if time_diff.total_seconds() > 1800:  # 30分钟
+                    video.status = "pending"
+                    video.retry_count = (video.retry_count or 0) + 1
+                    reset_count += 1
+                    logger.info(f"强制重置卡住的视频: {video.title} (超时: {time_diff.total_seconds()}秒)")
+            else:
+                # 没有更新时间的直接重置
+                video.status = "pending"
+                video.retry_count = (video.retry_count or 0) + 1
+                reset_count += 1
+                logger.info(f"强制重置无时间戳的视频: {video.title}")
+        
+        db.commit()
+        
+        logger.info(f"强制重置了 {reset_count} 个卡住的处理中视频")
+        
+        return {
+            "message": f"已强制重置 {reset_count} 个处理中视频，队列应该恢复正常",
+            "reset_count": reset_count,
+            "total_processing": len(processing_videos)
+        }
+        
+    except Exception as e:
+        logger.error(f"强制重置处理中视频失败: {e}")
+        raise HTTPException(status_code=500, detail=f"强制重置失败: {str(e)}")
+
+@router.post("/clear-gpu-memory")
+async def clear_gpu_memory():
+    """清理GPU内存，释放可能卡住的模型"""
+    try:
+        import torch
+        from app.services.ai_service import ai_service
+        
+        # 清理GPU缓存
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            
+        # 重新初始化模型
+        ai_service.model = None
+        
+        memory_info = {}
+        if torch.cuda.is_available():
+            memory_info = {
+                "memory_allocated_mb": round(torch.cuda.memory_allocated() / 1024 / 1024, 2),
+                "memory_reserved_mb": round(torch.cuda.memory_reserved() / 1024 / 1024, 2),
+                "memory_total_mb": round(torch.cuda.get_device_properties(0).total_memory / 1024 / 1024, 2)
+            }
+        
+        logger.info("已清理GPU内存并重置Whisper模型")
+        
+        return {
+            "message": "GPU内存已清理，Whisper模型已重置",
+            "gpu_memory": memory_info
+        }
+        
+    except Exception as e:
+        logger.error(f"清理GPU内存失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清理GPU内存失败: {str(e)}")
+
+@router.get("/check-stuck-videos")
+async def check_stuck_videos(db: Session = Depends(get_db)):
+    """检查可能卡住的视频"""
+    try:
+        from datetime import timedelta
+        
+        # 查找超过30分钟还在处理中的视频
+        thirty_minutes_ago = datetime.utcnow() - timedelta(minutes=30)
+        
+        stuck_videos = db.query(Video).filter(
+            Video.platform == "local",
+            Video.status == "processing",
+            Video.updated_at < thirty_minutes_ago
+        ).all()
+        
+        stuck_info = []
+        for video in stuck_videos:
+            time_diff = datetime.utcnow() - video.updated_at if video.updated_at else None
+            stuck_info.append({
+                "id": video.id,
+                "title": video.title,
+                "local_path": video.local_path,
+                "status": video.status,
+                "retry_count": video.retry_count or 0,
+                "updated_at": video.updated_at.isoformat() if video.updated_at else None,
+                "stuck_duration_minutes": int(time_diff.total_seconds() / 60) if time_diff else None
+            })
+        
+        return {
+            "stuck_videos": stuck_info,
+            "stuck_count": len(stuck_videos),
+            "message": f"发现 {len(stuck_videos)} 个可能卡住的视频"
+        }
+        
+    except Exception as e:
+        logger.error(f"检查卡住视频失败: {e}")
+        raise HTTPException(status_code=500, detail=f"检查失败: {str(e)}")

@@ -31,6 +31,7 @@ class Video(Base):
     local_path = Column(String(300))
     file_fingerprint = Column(String(64), unique=True, index=True)  # SHA256哈希值
     status = Column(String(20), default="pending", index=True)
+    retry_count = Column(Integer, default=0)  # 重试次数，用于队列重试机制
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

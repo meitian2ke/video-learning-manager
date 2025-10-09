@@ -362,17 +362,31 @@ class LocalVideoScanner:
                 except Exception as transcribe_error:
                     logger.error(f"字幕提取失败: {transcribe_error}")
                     processing_time = int(time.time() - start_time)
-                    # 转录失败，标记为失败状态
+                    # 转录失败，检查重试次数
                     if video:
-                        video.status = "failed"
+                        retry_count = video.retry_count or 0
+                        if retry_count < 3:  # 最多重试3次
+                            video.status = "pending"  # 重新排队
+                            video.retry_count = retry_count + 1
+                            logger.info(f"转录失败，重新排队重试 ({retry_count + 1}/3): {file_path}")
+                        else:
+                            video.status = "failed"  # 重试次数用完，标记为失败
+                            logger.error(f"转录失败次数过多，标记为失败: {file_path}")
                         db.commit()
                     
             except Exception as e:
                 logger.error(f"处理视频 {video_id} 失败: {e}")
-                # 更新为失败状态
+                # 处理异常，检查重试次数
                 video = db.query(Video).filter(Video.id == video_id).first()
                 if video:
-                    video.status = "failed"
+                    retry_count = video.retry_count or 0
+                    if retry_count < 3:  # 最多重试3次
+                        video.status = "pending"  # 重新排队
+                        video.retry_count = retry_count + 1
+                        logger.info(f"处理异常，重新排队重试 ({retry_count + 1}/3): video_id={video_id}")
+                    else:
+                        video.status = "failed"  # 重试次数用完，标记为失败
+                        logger.error(f"处理异常次数过多，标记为失败: video_id={video_id}")
                     db.commit()
             finally:
                 db.close()

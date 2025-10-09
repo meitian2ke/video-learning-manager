@@ -60,6 +60,22 @@
               <el-icon><View /></el-icon>
               {{ scanStatus.is_watching ? '停止监控' : '开始监控' }}
             </el-button>
+            <el-button 
+              type="info" 
+              @click="showDebugDialog = true"
+              style="margin-left: 10px;"
+            >
+              <el-icon><Setting /></el-icon>
+              系统调试
+            </el-button>
+            <el-button 
+              type="warning" 
+              @click="showLogsDialog = true"
+              style="margin-left: 10px;"
+            >
+              <el-icon><Document /></el-icon>
+              处理日志
+            </el-button>
           </div>
         </div>
       </template>
@@ -75,9 +91,9 @@
         </el-col>
         <el-col :span="12">
           <el-alert
-            :title="transcriptionConfig.mode === 'openai' ? '🌐 云端转录模式' : '💻 本地转录模式'"
+            :title="transcriptionConfig.mode === 'openai' ? '🌐 云端转录模式' : '💻 本地GPU转录模式'"
             :description="getTranscriptionDescription()"
-            :type="transcriptionConfig.mode === 'openai' ? 'success' : 'warning'"
+            :type="transcriptionConfig.mode === 'openai' ? 'success' : 'primary'"
             :closable="false"
             show-icon
           >
@@ -174,7 +190,7 @@
                   <Loading />
                 </el-icon>
                 <div style="font-size: 11px; color: #909399; margin-top: 2px;">
-                  {{ transcriptionConfig.mode === 'openai' ? '🌐 云端转录中...' : '💻 本地转录中...' }}
+                  {{ transcriptionConfig.mode === 'openai' ? '🌐 云端转录中...' : '🎮 GPU转录中...' }}
                 </div>
               </div>
             </div>
@@ -375,6 +391,121 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 系统调试对话框 -->
+    <el-dialog v-model="showDebugDialog" title="系统调试信息" width="80%">
+      <div v-loading="debugLoading">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-card header="系统状态">
+              <el-descriptions v-if="debugInfo" :column="1" size="small">
+                <el-descriptions-item label="CPU使用率">{{ debugInfo.system?.cpu_percent }}%</el-descriptions-item>
+                <el-descriptions-item label="内存使用率">{{ debugInfo.system?.memory_percent }}%</el-descriptions-item>
+                <el-descriptions-item label="磁盘使用率">{{ debugInfo.system?.disk_usage }}%</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card header="GPU状态">
+              <el-descriptions v-if="debugInfo" :column="1" size="small">
+                <el-descriptions-item label="GPU可用">
+                  <el-tag :type="debugInfo.gpu?.available ? 'success' : 'danger'">
+                    {{ debugInfo.gpu?.available ? '是' : '否' }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item v-if="debugInfo.gpu?.available" label="GPU名称">{{ debugInfo.gpu?.name }}</el-descriptions-item>
+                <el-descriptions-item v-if="debugInfo.gpu?.available" label="显存使用">
+                  {{ debugInfo.gpu?.memory_allocated_mb }}MB / {{ debugInfo.gpu?.memory_total_mb }}MB
+                </el-descriptions-item>
+                <el-descriptions-item v-if="debugInfo.gpu?.available" label="显存预留">{{ debugInfo.gpu?.memory_reserved_mb }}MB</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20" style="margin-top: 20px;">
+          <el-col :span="12">
+            <el-card header="Whisper模型">
+              <el-descriptions v-if="debugInfo" :column="1" size="small">
+                <el-descriptions-item label="模型已加载">
+                  <el-tag :type="debugInfo.whisper?.model_loaded ? 'success' : 'danger'">
+                    {{ debugInfo.whisper?.model_loaded ? '是' : '否' }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="模型名称">{{ debugInfo.whisper?.model_name }}</el-descriptions-item>
+                <el-descriptions-item label="设备">{{ debugInfo.whisper?.device }}</el-descriptions-item>
+                <el-descriptions-item label="计算类型">{{ debugInfo.whisper?.compute_type }}</el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+          <el-col :span="12">
+            <el-card header="处理队列">
+              <el-descriptions v-if="debugInfo" :column="1" size="small">
+                <el-descriptions-item label="待处理">
+                  <el-tag type="info">{{ debugInfo.queue?.pending || 0 }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="处理中">
+                  <el-tag type="warning">{{ debugInfo.queue?.processing || 0 }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="已完成">
+                  <el-tag type="success">{{ debugInfo.queue?.completed || 0 }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="失败">
+                  <el-tag type="danger">{{ debugInfo.queue?.failed || 0 }}</el-tag>
+                </el-descriptions-item>
+              </el-descriptions>
+            </el-card>
+          </el-col>
+        </el-row>
+        
+        <div style="margin-top: 20px;">
+          <el-alert 
+            v-if="debugInfo && debugInfo.queue && debugInfo.queue.processing > 0"
+            title="检测到处理中的视频"
+            :description="`当前有 ${debugInfo.queue.processing} 个视频在处理中，如果长时间无变化可能需要强制重置`"
+            type="warning"
+            show-icon
+            style="margin-bottom: 15px;"
+          />
+          
+          <div style="text-align: right;">
+            <el-button @click="loadDebugInfo" :loading="debugLoading">刷新调试信息</el-button>
+            <el-button type="primary" @click="resetFailedVideos">重置失败视频</el-button>
+            <el-button type="warning" @click="checkStuckVideos">检查卡住视频</el-button>
+            <el-button type="danger" @click="forceResetProcessing">强制重置队列</el-button>
+            <el-button type="info" @click="clearGpuMemory">清理GPU内存</el-button>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 处理日志对话框 -->
+    <el-dialog v-model="showLogsDialog" title="视频处理日志" width="90%">
+      <div style="margin-bottom: 10px;">
+        <el-button @click="loadLogs" :loading="logsLoading" type="primary">刷新日志</el-button>
+        <el-button @click="startAutoRefreshLogs" v-if="!autoRefreshLogs" type="success">开启自动刷新</el-button>
+        <el-button @click="stopAutoRefreshLogs" v-else type="warning">停止自动刷新</el-button>
+        <span style="margin-left: 10px; font-size: 12px; color: #909399;">
+          最后更新: {{ logsTimestamp }}
+        </span>
+      </div>
+      
+      <el-card>
+        <div v-loading="logsLoading" style="height: 500px; overflow-y: auto;">
+          <div 
+            v-for="(log, index) in processLogs" 
+            :key="index" 
+            style="font-family: monospace; font-size: 12px; line-height: 1.4; margin-bottom: 2px; padding: 2px 5px; border-radius: 3px;"
+            :style="getLogStyle(log)"
+          >
+            {{ log }}
+          </div>
+          <div v-if="processLogs.length === 0" style="text-align: center; color: #909399; padding: 50px;">
+            暂无日志数据
+          </div>
+        </div>
+      </el-card>
+    </el-dialog>
   </div>
 </template>
 
@@ -382,7 +513,7 @@
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
-  Refresh, Search, View, VideoPlay, Tools, Delete, Document, Loading
+  Refresh, Search, View, VideoPlay, Tools, Delete, Document, Loading, Setting
 } from '@element-plus/icons-vue'
 import axios from 'axios'
 
@@ -400,7 +531,7 @@ const scanStatus = reactive({
   processed_count: 0
 })
 const transcriptionConfig = reactive({
-  mode: 'openai',
+  mode: 'local',
   openai_available: false,
   local_model_available: true,
   auto_fallback: true
@@ -417,6 +548,17 @@ const resultDialog = ref(false)
 const videoDetail = ref(null)
 const autoRefresh = ref(true)
 const refreshInterval = ref(null)
+
+// 调试和日志相关
+const showDebugDialog = ref(false)
+const showLogsDialog = ref(false)
+const debugInfo = ref(null)
+const debugLoading = ref(false)
+const processLogs = ref([])
+const logsLoading = ref(false)
+const autoRefreshLogs = ref(false)
+const logsRefreshInterval = ref(null)
+const logsTimestamp = ref('')
 
 // 计算属性
 const filteredVideos = computed(() => {
@@ -469,9 +611,15 @@ const loadScanStatus = async () => {
 const loadTranscriptionConfig = async () => {
   try {
     const response = await api.get('/system/config')
-    Object.assign(transcriptionConfig, response.data)
+    // 更新转录配置，使用后端返回的transcription_mode
+    transcriptionConfig.mode = response.data.transcription_mode || 'local'
+    transcriptionConfig.openai_available = response.data.openai_available || false
+    transcriptionConfig.local_model_available = response.data.local_model_available || true
+    transcriptionConfig.auto_fallback = response.data.auto_fallback || true
   } catch (error) {
     console.error('获取转录配置失败:', error)
+    // 如果获取失败，默认使用本地模式
+    transcriptionConfig.mode = 'local'
   }
 }
 
@@ -723,10 +871,165 @@ const formatEstimatedTime = (seconds) => {
 
 const getTranscriptionDescription = () => {
   if (transcriptionConfig.mode === 'openai') {
-    return `使用OpenAI云端API转录，低CPU占用，支持自动降级到本地模式`
+    return `使用OpenAI云端API转录，低GPU占用，支持自动降级到本地模式`
   } else {
-    return `使用本地Whisper模型转录，高CPU占用，无需网络连接`
+    return `使用本地GPU Whisper模型转录，RTX3060加速，无需网络连接`
   }
+}
+
+// 调试和日志相关方法
+const loadDebugInfo = async () => {
+  debugLoading.value = true
+  try {
+    const response = await api.get('/local-videos/debug-system')
+    debugInfo.value = response.data
+  } catch (error) {
+    console.error('获取调试信息失败:', error)
+    ElMessage.error('获取调试信息失败')
+  } finally {
+    debugLoading.value = false
+  }
+}
+
+const loadLogs = async () => {
+  logsLoading.value = true
+  try {
+    const response = await api.get('/local-videos/logs/live')
+    processLogs.value = response.data.logs || []
+    logsTimestamp.value = new Date().toLocaleString('zh-CN')
+  } catch (error) {
+    console.error('获取日志失败:', error)
+    ElMessage.error('获取日志失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+const startAutoRefreshLogs = () => {
+  autoRefreshLogs.value = true
+  logsRefreshInterval.value = setInterval(() => {
+    if (showLogsDialog.value) {
+      loadLogs()
+    }
+  }, 3000) // 每3秒刷新一次日志
+}
+
+const stopAutoRefreshLogs = () => {
+  autoRefreshLogs.value = false
+  if (logsRefreshInterval.value) {
+    clearInterval(logsRefreshInterval.value)
+    logsRefreshInterval.value = null
+  }
+}
+
+const resetFailedVideos = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确认重置所有失败的视频状态吗？这将允许重新处理失败的视频。',
+      '重置失败视频',
+      {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    
+    const response = await api.post('/local-videos/reset-failed')
+    ElMessage.success(response.data.message)
+    await loadDebugInfo() // 刷新调试信息
+    await loadLocalVideos() // 刷新视频列表
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('重置失败视频失败:', error)
+      ElMessage.error('重置失败')
+    }
+  }
+}
+
+const checkStuckVideos = async () => {
+  try {
+    const response = await api.get('/local-videos/check-stuck-videos')
+    const stuckVideos = response.data.stuck_videos || []
+    
+    if (stuckVideos.length === 0) {
+      ElMessage.success('没有发现卡住的视频')
+    } else {
+      const videoList = stuckVideos.map(v => `${v.title} (卡住${v.stuck_duration_minutes}分钟)`).join('\n')
+      await ElMessageBox.alert(
+        `发现 ${stuckVideos.length} 个可能卡住的视频：\n\n${videoList}`,
+        '卡住视频检查结果',
+        { type: 'warning' }
+      )
+    }
+    
+    await loadDebugInfo() // 刷新调试信息
+  } catch (error) {
+    console.error('检查卡住视频失败:', error)
+    ElMessage.error('检查卡住视频失败')
+  }
+}
+
+const forceResetProcessing = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确认强制重置所有处理中的视频吗？这将清理可能卡住的队列状态。',
+      '强制重置处理队列',
+      {
+        confirmButtonText: '确认重置',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    
+    const response = await api.post('/local-videos/force-reset-processing')
+    ElMessage.success(response.data.message)
+    await loadDebugInfo() // 刷新调试信息
+    await loadLocalVideos() // 刷新视频列表
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('强制重置处理队列失败:', error)
+      ElMessage.error('强制重置失败')
+    }
+  }
+}
+
+const clearGpuMemory = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确认清理GPU内存吗？这将重置Whisper模型，可能解决GPU相关问题。',
+      '清理GPU内存',
+      {
+        confirmButtonText: '确认清理',
+        cancelButtonText: '取消',
+        type: 'info',
+      }
+    )
+    
+    const response = await api.post('/local-videos/clear-gpu-memory')
+    ElMessage.success(response.data.message)
+    await loadDebugInfo() // 刷新调试信息
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清理GPU内存失败:', error)
+      ElMessage.error('清理GPU内存失败')
+    }
+  }
+}
+
+const getLogStyle = (log) => {
+  if (log.includes('ERROR') || log.includes('错误') || log.includes('失败')) {
+    return { backgroundColor: '#fef0f0', color: '#f56c6c' }
+  } else if (log.includes('WARNING') || log.includes('警告')) {
+    return { backgroundColor: '#fdf6ec', color: '#e6a23c' }
+  } else if (log.includes('INFO') || log.includes('完成') || log.includes('成功')) {
+    return { backgroundColor: '#f0f9ff', color: '#409eff' }
+  } else if (log.includes('DEBUG') || log.includes('调试')) {
+    return { backgroundColor: '#f5f7fa', color: '#909399' }
+  }
+  return { backgroundColor: '#fafafa', color: '#606266' }
 }
 
 // 自动刷新功能
@@ -757,6 +1060,7 @@ onMounted(async () => {
 // 页面卸载时清理
 onUnmounted(() => {
   stopAutoRefresh()
+  stopAutoRefreshLogs()
 })
 </script>
 
