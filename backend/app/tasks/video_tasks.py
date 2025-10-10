@@ -3,6 +3,7 @@
 每个Worker进程独立管理GPU资源，避免内存泄漏和竞争
 """
 
+import asyncio
 import logging
 import time
 import traceback
@@ -85,7 +86,7 @@ def process_video_task(self, video_id: int):
         )
         
         # 实际转录处理
-        result = ai_service.transcribe_video(video.local_path)
+        result = asyncio.run(ai_service.transcribe_video(video.local_path))
         
         processing_time = int(time.time() - start_time)
         logger.info(f"✅ 转录完成，耗时: {processing_time}秒")
