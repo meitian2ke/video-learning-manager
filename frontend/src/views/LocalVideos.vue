@@ -635,6 +635,34 @@ const loadTranscriptionConfig = async () => {
 
 const refreshList = async () => {
   await Promise.all([loadLocalVideos(), loadScanStatus(), loadTranscriptionConfig()])
+  
+  // 自动处理所有未处理的视频
+  await autoProcessPendingVideos()
+}
+
+const autoProcessPendingVideos = async () => {
+  try {
+    // 获取所有未处理的视频
+    const pendingVideos = localVideos.value.filter(video => 
+      video.processing_status === 'unprocessed' || video.processing_status === 'failed'
+    )
+    
+    if (pendingVideos.length === 0) {
+      return // 没有未处理视频，静默返回
+    }
+    
+    // 提取视频文件名
+    const videoNames = pendingVideos.map(video => video.name)
+    
+    // 调用批量处理API
+    const response = await api.post('/local-videos/batch-process', videoNames)
+    
+    ElMessage.success(`自动提交了 ${response.data.video_count} 个视频到处理队列`)
+    
+  } catch (error) {
+    console.error('自动处理失败:', error)
+    // 静默失败，不打断用户操作
+  }
 }
 
 const applyFilter = () => {
@@ -647,6 +675,10 @@ const scanVideos = async () => {
     const response = await api.post('/local-videos/scan')
     ElMessage.success(response.data.message)
     await loadLocalVideos()
+    
+    // 自动处理新发现的视频
+    await autoProcessPendingVideos()
+    
   } catch (error) {
     console.error('扫描视频失败:', error)
     ElMessage.error('扫描视频失败')
