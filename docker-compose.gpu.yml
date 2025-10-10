@@ -1,6 +1,22 @@
 version: '3.8'
 
 services:
+  # Redis服务 - Celery消息队列
+  redis:
+    image: redis:7-alpine
+    container_name: video-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   video-learning-manager-gpu:
     build:
       context: .
@@ -19,6 +35,8 @@ services:
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    depends_on:
+      - redis
     environment:
       # 生产环境配置
       - ENVIRONMENT=production
@@ -45,6 +63,9 @@ services:
       
       # 数据库
       - DATABASE_URL=sqlite:///./data/video_learning.db
+      
+      # Redis配置
+      - REDIS_URL=redis://redis:6379/0
       
       # 日志级别
       - LOG_LEVEL=INFO
@@ -119,8 +140,69 @@ services:
     profiles:
       - init
 
+  # Celery Worker服务 - 视频处理队列
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: video-learning-manager-gpu:optimized
+    container_name: video-celery-worker
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=3 --max-tasks-per-child=10
+    volumes:
+      # 数据持久化
+      - ./data:/app/data
+      - ./local-videos:/app/local-videos
+      - ./logs:/app/logs
+      # 挂载本地模型目录
+      - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
+      # GPU访问
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    depends_on:
+      - redis
+    environment:
+      # 生产环境配置
+      - ENVIRONMENT=production
+      - WHISPER_MODEL=large
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+      
+      # 目录配置
+      - UPLOAD_DIR=/app/data/uploads
+      - VIDEO_DIR=/app/data/videos
+      - AUDIO_DIR=/app/data/audios
+      - THUMBNAIL_DIR=/app/data/thumbnails
+      - LOCAL_VIDEO_DIR=/app/local-videos
+      
+      # 数据库
+      - DATABASE_URL=sqlite:///./data/video_learning.db
+      
+      # Redis配置
+      - REDIS_URL=redis://redis:6379/0
+      
+      # 日志级别
+      - LOG_LEVEL=INFO
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.celery_app", "inspect", "ping"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+
 volumes:
   whisper-models:
+    driver: local
+  redis-data:
     driver: local
 
 networks:

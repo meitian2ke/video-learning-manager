@@ -49,31 +49,14 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     await init_db()
     
-    # 自动启动本地视频监控
-    from app.services.local_video_scanner import get_scanner
-    from app.core.config import settings
-    
-    if settings.ENABLE_LOCAL_SCAN:
-        try:
-            scanner = get_scanner(settings.LOCAL_VIDEO_DIR)
-            if scanner:
-                scanner.start_watching()
-                print(f"✅ 本地视频监控已启动: {settings.LOCAL_VIDEO_DIR}")
-            else:
-                print("⚠️ 本地视频监控启动失败")
-        except Exception as e:
-            print(f"❌ 启动本地视频监控失败: {e}")
+    logging.info("🚀 FastAPI服务启动完成")
+    logging.info("📋 视频处理已切换到Celery队列模式")
+    logging.info("🔧 可通过API手动提交视频处理任务")
     
     yield
     
     # 关闭时清理资源
-    try:
-        scanner = get_scanner()
-        if scanner:
-            scanner.stop_watching()
-            print("🛑 本地视频监控已停止")
-    except Exception as e:
-        print(f"停止监控时出错: {e}")
+    logging.info("🛑 FastAPI服务正在关闭")
 
 app = FastAPI(
     title="视频学习管理器",

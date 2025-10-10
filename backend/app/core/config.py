@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # 数据库配置
     DATABASE_URL: str = "sqlite:///./video_learning.db"
     
-    # Redis配置
+    # Redis配置 - Celery消息队列
     REDIS_URL: str = "redis://localhost:6379/0"
     
     # 文件存储配置

@@ -9,7 +9,7 @@ import logging
 import traceback
 import torch
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.core.config import settings
 from app.services.local_video_scanner import get_scanner
@@ -17,6 +17,9 @@ from app.core.database import get_db, Video, Transcript, SessionLocal
 from sqlalchemy.orm import Session
 from fastapi import Depends
 import os
+
+# 导入Celery相关
+from app.tasks.video_tasks import process_video_task, batch_process_videos, get_task_status
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -316,13 +319,15 @@ async def debug_process_video(video_name: str, db: Session = Depends(get_db)):
         return {"video_name": video_name, "video_path": video_path, "debug_steps": debug_steps}
 
 @router.post("/process/{video_name}")
-async def process_local_video(video_name: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """处理指定的本地视频"""
+async def process_local_video(video_name: str, db: Session = Depends(get_db)):
+    """提交指定的本地视频到Celery队列处理"""
     try:
+        logger.info(f"📤 提交视频处理请求: {video_name}")
+        
+        # 查找视频文件
         watch_dir = Path(settings.LOCAL_VIDEO_DIR)
         video_file = None
         
-        # 查找视频文件
         for file_path in watch_dir.rglob('*'):
             if file_path.name == video_name:
                 video_file = file_path
@@ -331,9 +336,13 @@ async def process_local_video(video_name: str, background_tasks: BackgroundTasks
         if not video_file:
             raise HTTPException(status_code=404, detail="视频文件不存在")
         
-        logger.info(f"开始处理视频: {video_name}, 路径: {video_file}")
+        # 过滤macOS垃圾文件
+        if video_file.name.startswith('._'):
+            raise HTTPException(status_code=400, detail="不能处理macOS元数据文件")
         
-        # 先检查数据库中是否已存在记录
+        logger.info(f"📹 找到视频文件: {video_file}")
+        
+        # 检查数据库中是否已存在记录
         video_record = db.query(Video).filter(Video.local_path == str(video_file)).first()
         
         if not video_record:
@@ -345,30 +354,44 @@ async def process_local_video(video_name: str, background_tasks: BackgroundTasks
                 platform="local",
                 local_path=str(video_file),
                 file_size=file_stat.st_size,
-                status="pending"
+                status="pending",
+                retry_count=0
             )
             db.add(video_record)
             db.commit()
             db.refresh(video_record)
-            logger.info(f"已创建视频记录: ID={video_record.id}")
+            logger.info(f"✅ 创建视频记录: ID={video_record.id}")
         else:
-            # 更新为处理状态
+            # 更新状态为待处理
             video_record.status = "pending"
+            video_record.retry_count = 0
+            video_record.task_id = None
             db.commit()
-            logger.info(f"已更新视频记录状态: ID={video_record.id}")
+            logger.info(f"🔄 重置视频记录状态: ID={video_record.id}")
         
-        # 添加到后台处理队列
-        background_tasks.add_task(process_video_task, str(video_file), video_record.id)
+        # 提交到Celery队列
+        task = process_video_task.delay(video_record.id)
+        
+        # 更新任务ID
+        video_record.task_id = task.id
+        db.commit()
+        
+        logger.info(f"🚀 视频已提交到Celery队列: task_id={task.id}")
         
         return {
-            "message": f"视频 {video_name} 已加入处理队列",
+            "message": f"视频 {video_name} 已提交到处理队列",
             "video_name": video_name,
             "video_id": video_record.id,
+            "task_id": task.id,
             "status": "pending"
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"处理本地视频失败: {e}")
-        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+        logger.error(f"❌ 提交视频处理失败: {video_name}, 错误: {e}")
+        logger.error(f"📋 错误堆栈:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"提交处理失败: {str(e)}")
 
 @router.get("/model-status")
 async def get_model_status():
@@ -415,87 +438,7 @@ async def get_model_status():
             "traceback": traceback.format_exc()
         }
 
-async def process_video_task(video_path: str, video_id: int = None):
-    """后台视频处理任务"""
-    try:
-        from app.services.ai_service import ai_service
-        from app.core.database import SessionLocal, Video, Transcript
-        from pathlib import Path
-        import time
-        
-        logger.info(f"🎬 开始处理视频: {video_path} (ID: {video_id})")
-        
-        # 查找对应的视频记录
-        db = SessionLocal()
-        try:
-            if video_id:
-                video = db.query(Video).filter(Video.id == video_id).first()
-            else:
-                video = db.query(Video).filter(Video.local_path == video_path).first()
-            
-            if not video:
-                logger.error(f"❌ 未找到视频记录: {video_path} (ID: {video_id})")
-                return
-            
-            # 更新状态为处理中
-            logger.info(f"📝 更新状态为处理中: {video.title}")
-            video.status = "processing"
-            db.commit()
-            
-            # 使用AI服务进行真实的字幕提取
-            logger.info(f"🤖 正在使用Whisper处理视频: {video_path}")
-            file_size_mb = (video.file_size / (1024*1024)) if video.file_size else 0
-            logger.info(f"📊 视频信息: 文件大小 {file_size_mb:.1f}MB")
-            start_time = time.time()
-            
-            # 直接对视频文件进行转录
-            transcript_data = await ai_service.transcribe_video(video_path)
-            
-            processing_time = int(time.time() - start_time)
-            logger.info(f"✅ 字幕提取完成，耗时 {processing_time} 秒")
-            logger.info(f"📝 转录结果长度: {len(transcript_data.get('original_text', '')) if transcript_data else 0} 字符")
-            
-            # 删除已存在的字幕记录（如果有）
-            existing_transcript = db.query(Transcript).filter(Transcript.video_id == video.id).first()
-            if existing_transcript:
-                db.delete(existing_transcript)
-            
-            # 创建新的字幕记录
-            transcript = Transcript(
-                video_id=video.id,
-                original_text=transcript_data.get("original_text", ""),
-                cleaned_text=transcript_data.get("cleaned_text", transcript_data.get("original_text", "")),
-                summary=transcript_data.get("summary", ""),
-                tags=transcript_data.get("tags", ""),
-                language=transcript_data.get("language", "zh"),
-                confidence_score=transcript_data.get("confidence_score", 0.0),
-                processing_time=processing_time
-            )
-            db.add(transcript)
-            
-            # 更新为完成状态
-            video.status = "completed"
-            db.commit()
-            logger.info(f"视频处理完成: {video_path}")
-            
-        except Exception as e:
-            logger.error(f"处理视频失败: {video_path}, 错误: {e}")
-            # 检查重试次数，实现队列重试机制
-            if 'video' in locals():
-                retry_count = video.retry_count or 0
-                if retry_count < 3:  # 最多重试3次
-                    video.status = "pending"  # 重新排队
-                    video.retry_count = retry_count + 1
-                    logger.info(f"处理失败，重新排队重试 ({retry_count + 1}/3): {video_path}")
-                else:
-                    video.status = "failed"  # 重试次数用完，标记为失败
-                    logger.error(f"处理失败次数过多，标记为失败: {video_path}")
-                db.commit()
-        finally:
-            db.close()
-            
-    except Exception as e:
-        logger.error(f"视频处理失败: {video_path}, 错误: {e}")
+# 旧的process_video_task函数已移至app.tasks.video_tasks模块
 
 @router.get("/processing-status")
 async def get_processing_status(db: Session = Depends(get_db)):
@@ -959,6 +902,130 @@ async def get_live_logs():
     except Exception as e:
         logger.error(f"获取实时日志失败: {e}")
         return {"logs": [f"获取日志失败: {str(e)}"]}
+
+@router.get("/task-status/{task_id}")
+async def get_celery_task_status(task_id: str):
+    """获取Celery任务状态"""
+    try:
+        from celery.result import AsyncResult
+        from app.celery_app import celery_app
+        
+        result = AsyncResult(task_id, app=celery_app)
+        
+        return {
+            "task_id": task_id,
+            "status": result.status,
+            "result": result.result if result.ready() else None,
+            "info": result.info,
+            "traceback": result.traceback if result.failed() else None
+        }
+    except Exception as e:
+        logger.error(f"获取任务状态失败: {e}")
+        return {
+            "task_id": task_id,
+            "status": "ERROR",
+            "error": str(e)
+        }
+
+@router.post("/batch-process")
+async def batch_process_videos_api(video_names: List[str], db: Session = Depends(get_db)):
+    """批量处理视频"""
+    try:
+        logger.info(f"📦 批量处理请求: {len(video_names)} 个视频")
+        
+        video_ids = []
+        watch_dir = Path(settings.LOCAL_VIDEO_DIR)
+        
+        # 验证所有视频文件存在并创建记录
+        for video_name in video_names:
+            # 跳过macOS垃圾文件
+            if video_name.startswith('._'):
+                logger.warning(f"⚠️ 跳过macOS元数据文件: {video_name}")
+                continue
+                
+            # 查找视频文件
+            video_file = None
+            for file_path in watch_dir.rglob('*'):
+                if file_path.name == video_name:
+                    video_file = file_path
+                    break
+            
+            if not video_file:
+                logger.warning(f"⚠️ 视频文件不存在: {video_name}")
+                continue
+            
+            # 检查或创建视频记录
+            video_record = db.query(Video).filter(Video.local_path == str(video_file)).first()
+            
+            if not video_record:
+                file_stat = video_file.stat()
+                video_record = Video(
+                    title=video_file.stem,
+                    url=f"local://{video_name}",
+                    platform="local",
+                    local_path=str(video_file),
+                    file_size=file_stat.st_size,
+                    status="pending",
+                    retry_count=0
+                )
+                db.add(video_record)
+                db.flush()  # 获取ID但不提交
+            else:
+                # 重置状态
+                video_record.status = "pending"
+                video_record.retry_count = 0
+                video_record.task_id = None
+            
+            video_ids.append(video_record.id)
+        
+        db.commit()
+        
+        # 提交批量处理任务
+        task = batch_process_videos.delay(video_ids)
+        
+        logger.info(f"🚀 批量处理任务已提交: task_id={task.id}, 视频数量={len(video_ids)}")
+        
+        return {
+            "message": f"已提交 {len(video_ids)} 个视频到批量处理队列",
+            "task_id": task.id,
+            "video_count": len(video_ids),
+            "skipped_count": len(video_names) - len(video_ids)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ 批量处理提交失败: {e}")
+        raise HTTPException(status_code=500, detail=f"批量处理失败: {str(e)}")
+
+@router.get("/queue-status")
+async def get_queue_status():
+    """获取Celery队列状态"""
+    try:
+        from app.celery_app import celery_app
+        
+        inspect = celery_app.control.inspect()
+        
+        # 获取活跃任务
+        active_tasks = inspect.active()
+        
+        # 获取预定任务
+        scheduled_tasks = inspect.scheduled()
+        
+        # 获取保留任务
+        reserved_tasks = inspect.reserved()
+        
+        return {
+            "active_tasks": active_tasks,
+            "scheduled_tasks": scheduled_tasks,
+            "reserved_tasks": reserved_tasks,
+            "worker_stats": inspect.stats()
+        }
+        
+    except Exception as e:
+        logger.error(f"获取队列状态失败: {e}")
+        return {
+            "error": str(e),
+            "message": "无法连接到Celery"
+        }
 
 @router.get("/debug-system")
 async def debug_system_status():
