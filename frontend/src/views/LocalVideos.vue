@@ -52,6 +52,15 @@
               扫描新视频
             </el-button>
             <el-button 
+              type="danger" 
+              @click="batchProcessAll" 
+              :loading="batchProcessing"
+              style="margin-left: 10px;"
+            >
+              <el-icon><VideoPlay /></el-icon>
+              一键处理全部
+            </el-button>
+            <el-button 
               :type="scanStatus.is_watching ? 'warning' : 'primary'" 
               @click="toggleWatching"
               :loading="toggleLoading"
@@ -539,6 +548,7 @@ const transcriptionConfig = reactive({
 const loading = ref(false)
 const scanning = ref(false)
 const toggleLoading = ref(false)
+const batchProcessing = ref(false)
 const searchQuery = ref('')
 const statusFilter = ref('')
 const selectedVideos = ref([])
@@ -770,6 +780,53 @@ const handleSelectionChange = (selection) => {
 const batchProcess = async () => {
   ElMessage.info(`开始批量处理 ${selectedVideos.value.length} 个视频`)
   // TODO: 实现批量处理
+}
+
+const batchProcessAll = async () => {
+  try {
+    // 获取所有未处理的视频
+    const pendingVideos = localVideos.value.filter(video => 
+      video.processing_status === 'unprocessed' || video.processing_status === 'failed'
+    )
+    
+    if (pendingVideos.length === 0) {
+      ElMessage.warning('没有需要处理的视频')
+      return
+    }
+    
+    // 确认对话框
+    await ElMessageBox.confirm(
+      `确认将 ${pendingVideos.length} 个未处理视频加入处理队列吗？`,
+      '批量处理确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认处理',
+        cancelButtonText: '取消'
+      }
+    )
+    
+    batchProcessing.value = true
+    
+    // 提取视频文件名
+    const videoNames = pendingVideos.map(video => video.name)
+    
+    // 调用批量处理API
+    const response = await api.post('/local-videos/batch-process', videoNames)
+    
+    ElMessage.success(`已成功提交 ${response.data.video_count} 个视频到处理队列`)
+    
+    // 刷新列表
+    await loadLocalVideos()
+    
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('批量处理失败:', error)
+      const errorMsg = error.response?.data?.detail || '批量处理失败'
+      ElMessage.error(errorMsg)
+    }
+  } finally {
+    batchProcessing.value = false
+  }
 }
 
 const batchDelete = async () => {
