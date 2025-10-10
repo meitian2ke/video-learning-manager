@@ -28,7 +28,7 @@ services:
     volumes:
       # 数据持久化
       - ./data:/app/data
-      - ./local-videos:/app/local-videos
+      - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
       # 挂载本地模型目录
       - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
@@ -151,7 +151,7 @@ services:
     volumes:
       # 数据持久化
       - ./data:/app/data
-      - ./local-videos:/app/local-videos
+      - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
       # 挂载本地模型目录
       - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
