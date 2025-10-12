@@ -220,13 +220,17 @@ class LocalVideoScanner:
             await asyncio.sleep(1)
     
     async def _check_duplicate_fingerprint(self, fingerprint: str) -> bool:
-        """检查数据库中是否已存在相同指纹的视频"""
+        """检查数据库中是否已存在相同指纹的已完成视频"""
         try:
             from app.core.database import SessionLocal, Video
             
             db = SessionLocal()
             try:
-                existing_video = db.query(Video).filter(Video.file_fingerprint == fingerprint).first()
+                # 只有状态为completed的视频才算重复
+                existing_video = db.query(Video).filter(
+                    Video.file_fingerprint == fingerprint,
+                    Video.status == "completed"
+                ).first()
                 return existing_video is not None
             finally:
                 db.close()
