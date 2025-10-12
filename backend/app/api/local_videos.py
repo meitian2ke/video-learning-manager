@@ -883,8 +883,7 @@ async def get_live_logs():
     try:
         from app.core.config import settings
         
-        log_dir = Path(settings.UPLOAD_DIR).parent / "logs"
-        log_file = log_dir / "video_processing.log"
+        log_file = Path("/app/logs/video_processing.log")
         
         if not log_file.exists():
             return {"logs": ["日志文件不存在"]}

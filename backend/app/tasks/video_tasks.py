@@ -22,9 +22,9 @@ def get_worker_ai_service():
     """获取当前Worker进程的AI服务实例（单例模式）"""
     global _worker_ai_service
     if _worker_ai_service is None:
-        from app.services.ai_service import AIService
+        from app.services.ai_service import AITranscriptionService
         logger.info("🤖 初始化Worker进程的AI服务")
-        _worker_ai_service = AIService()
+        _worker_ai_service = AITranscriptionService()
         logger.info("✅ AI服务初始化完成")
     return _worker_ai_service
 
