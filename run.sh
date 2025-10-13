@@ -165,10 +165,54 @@ update_service() {
     print_success "更新完成！"
 }
 
+# 验证代码是否为最新版本（通用方案）
+verify_latest_code() {
+    print_header "🔍 验证代码版本"
+    
+    # 检查Git状态
+    if [ ! -d ".git" ]; then
+        print_warning "非Git仓库，跳过版本验证"
+        return 0
+    fi
+    
+    # 获取当前Git状态
+    local git_status=$(git status --porcelain)
+    if [ ! -z "$git_status" ]; then
+        print_warning "发现未提交的本地修改:"
+        git status --short
+        read -p "是否继续rebuild? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_error "用户取消rebuild"
+            exit 1
+        fi
+    fi
+    
+    # 获取本地最新commit hash
+    local local_hash=$(git rev-parse HEAD)
+    print_status "本地代码版本: $local_hash"
+    
+    # 检查是否有未推送的提交
+    local unpushed=$(git log @{u}..HEAD --oneline 2>/dev/null | wc -l)
+    if [ $unpushed -gt 0 ]; then
+        print_warning "发现 $unpushed 个未推送的提交"
+        git log @{u}..HEAD --oneline
+        read -p "是否继续rebuild? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_error "请先推送提交或运行 deploy.sh"
+            exit 1
+        fi
+    fi
+    
+    print_success "代码版本验证通过"
+}
+
 # 完全重构
 rebuild_service() {
     print_header "🔧 完全重构"
     check_requirements
+    verify_latest_code  # 新增：rebuild 前验证代码版本
     update_code
     
     print_status "停止所有服务..."

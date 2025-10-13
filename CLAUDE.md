@@ -13,9 +13,31 @@
 - 主应用端口 8000 和前端端口 3000 无冲突，不需要修改
 
 ### 部署流程
-1. 在 macOS 开发环境推送代码: `git push origin main`
-2. 在 Debian 服务器拉取更新: `git pull --force origin main`
-3. 重启服务: `./run.sh restart`
+- **新方案**: 使用rsync增量同步 (推荐)
+- **同步路径**: 本地开发 → rsync直接同步 → 部署目录(/home/eric/deploy)
+
+#### 一键部署
+```bash
+# 在macOS项目根目录执行
+./deploy.sh
+```
+
+#### 手动部署
+```bash
+# 1. 推送代码到GitHub (可选，用于备份)
+git add . && git commit -m "update" && git push origin main
+
+# 2. 同步到服务器
+rsync -avz --delete --exclude='.git' --exclude='node_modules' \
+  -e ssh ./ eric@192.168.0.106:/home/eric/deploy/video-learning-manager/
+
+# 3. 重启服务
+ssh eric@192.168.0.106 "cd /home/eric/deploy/video-learning-manager && ./run.sh restart"
+```
+
+### 旧方案存档 (Git镜像同步)
+- **弃用原因**: 网络不稳定，GitHub连接经常失败
+- 如需回退: 恢复post-receive hook配置
 
 ## 常用命令
 

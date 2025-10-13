@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     xz-utils \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装cuDNN 9.1 for CUDA 11.8 - 解决GPU兼容性问题

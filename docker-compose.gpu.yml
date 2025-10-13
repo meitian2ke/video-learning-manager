@@ -30,8 +30,8 @@ services:
       - ./data:/app/data
       - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
-      # 挂载本地模型目录
-      - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
+      # 使用Docker volume挂载模型
+      - whisper-models:/root/.cache/huggingface
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
@@ -153,8 +153,8 @@ services:
       - ./data:/app/data
       - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
-      # 挂载本地模型目录
-      - ./models/faster-whisper-large-v3:/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3:ro
+      # 使用Docker volume挂载模型
+      - whisper-models:/root/.cache/huggingface
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
