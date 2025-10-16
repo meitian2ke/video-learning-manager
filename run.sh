@@ -26,8 +26,8 @@ show_help() {
     echo "  ./run.sh start      - 启动服务"
     echo "  ./run.sh stop       - 停止服务"
     echo "  ./run.sh restart    - 重启服务"
-    echo "  ./run.sh update     - 更新代码并重启（推荐）"
-    echo "  ./run.sh rebuild    - 完全重构"
+    echo "  ./run.sh update     - 重构镜像并重启"
+    echo "  ./run.sh rebuild    - 完全重构（清理缓存）"
     echo "  ./run.sh logs       - 查看日志"
     echo "  ./run.sh status     - 查看状态"
     echo "  ./run.sh models     - 模型管理"
@@ -65,16 +65,7 @@ check_requirements() {
     print_success "系统要求检查通过"
 }
 
-# 更新代码
-update_code() {
-    print_status "拉取最新代码..."
-    git stash 2>/dev/null || true
-    if git pull origin main; then
-        print_success "代码更新成功"
-    else
-        print_warning "代码更新失败，继续使用当前版本"
-    fi
-}
+
 
 # 检查模型
 check_models() {
@@ -149,11 +140,10 @@ restart_service() {
     start_service
 }
 
-# 更新服务
+# 更新服务（仅重构镜像）
 update_service() {
-    print_header "📦 更新服务"
+    print_header "📦 重构服务"
     check_requirements
-    update_code
     
     print_status "停止现有服务..."
     $DOCKER_COMPOSE -f docker-compose.gpu.yml down
@@ -165,17 +155,22 @@ update_service() {
     print_success "更新完成！"
 }
 
-# 简单Git更新
-update_code() {
-    print_header "📥 更新代码"
-    git pull origin main
-}
-
-# 完全重构
+# 完全重构（不更新代码，直接rebuild）
 rebuild_service() {
     print_header "🔧 完全重构"
     check_requirements
-    update_code
+    
+    print_warning "将执行以下操作："
+    print_warning "1. 停止所有服务"
+    print_warning "2. 清理Docker资源"
+    print_warning "3. 无缓存重新构建镜像"
+    read -p "确认继续? (y/N): " -n 1 -r
+    echo
+    
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_status "操作已取消"
+        return 0
+    fi
     
     print_status "停止所有服务..."
     $DOCKER_COMPOSE -f docker-compose.gpu.yml down
