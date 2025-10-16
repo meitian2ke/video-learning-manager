@@ -44,7 +44,7 @@ WORKDIR /app
 RUN python3.11 -m pip install --upgrade pip
 
 # 安装Cython和av的兼容版本（在安装其他包之前）
-RUN python3.11 -m pip install "Cython<3.0" -i https://pypi.tuna.tsinghua.edu.cn/simple/
+RUN python3.11 -m pip install "Cython>=3.0.0"
 
 # 复制requirements文件
 COPY requirements.txt .
