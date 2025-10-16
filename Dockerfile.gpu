@@ -58,9 +58,37 @@ RUN python3.11 -m pip install torch torchvision torchaudio \
     -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
-# 先安装faster-whisper和关键依赖（确保安装成功）
-# FFmpeg开发库已在上面安装，PyAV可以正常编译
-RUN python3.11 -m pip install faster-whisper==0.9.0 transformers huggingface-hub
+# 设置环境变量禁用PyAV日志编译（避免Cython兼容性问题）
+ENV PYAV_LOGGING=off
+
+# 创建临时目录
+RUN mkdir -p /tmp/wheels
+
+# 复制本地wheel文件作为备用（如果存在的话）
+# 注意：如果models/wheels目录不存在，这行会被注释掉
+# COPY models/wheels/* /tmp/wheels/
+
+# 多层级安装策略 - 稳妥的回退机制
+RUN echo "🚀 开始安装faster-whisper，使用多层级回退策略..." && \
+    # 策略1: 尝试在线安装最新版本（优先使用预编译wheels）
+    (echo "📦 策略1: 在线安装最新版本..." && \
+     python3.11 -m pip install --only-binary=av "faster-whisper>=1.0.3" transformers huggingface-hub && \
+     echo "✅ 在线安装成功") || \
+    # 策略2: 使用本地wheel文件（如果存在）
+    (echo "📦 策略2: 使用本地wheel文件..." && \
+     ls /tmp/wheels/*.whl 2>/dev/null && \
+     python3.11 -m pip install /tmp/wheels/*.whl && \
+     echo "✅ 本地wheel安装成功") || \
+    # 策略3: 降级到兼容版本
+    (echo "📦 策略3: 降级到兼容版本..." && \
+     python3.11 -m pip install "faster-whisper==1.0.1" transformers huggingface-hub && \
+     echo "✅ 兼容版本安装成功") || \
+    # 策略4: 最后的备用方案 - openai-whisper
+    (echo "📦 策略4: 备用方案openai-whisper..." && \
+     python3.11 -m pip install openai-whisper transformers huggingface-hub && \
+     echo "✅ 备用方案安装成功") || \
+    # 如果所有策略都失败
+    (echo "❌ 所有安装策略都失败了！" && exit 1)
 
 # 安装其他依赖
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
@@ -86,8 +114,7 @@ ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
 # 创建模型缓存目录
 RUN mkdir -p /root/.cache/huggingface/hub
 
-# 复制预下载的模型到镜像中
-COPY models/faster-whisper-large-v3 /root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3
+# 模型将在运行时自动下载到容器内
 
 # 设置权限
 RUN chmod -R 755 /app

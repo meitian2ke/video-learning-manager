@@ -30,8 +30,6 @@ services:
       - ./data:/app/data
       - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
-      # 使用Docker volume挂载模型
-      - whisper-models:/root/.cache/huggingface
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
@@ -105,40 +103,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # 可选：GPU指标导出器（用于监控）
-  nvidia-smi-exporter:
-    image: utkuozdemir/nvidia_gpu_exporter:1.2.0
-    container_name: nvidia-smi-exporter
-    ports:
-      - "9835:9835"
-    devices:
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia0:/dev/nvidia0
-    volumes:
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
-    restart: unless-stopped
-    profiles:
-      - monitoring
-
-  # Whisper模型下载服务
-  whisper-models:
-    build:
-      context: .
-      dockerfile: Dockerfile.models
-    container_name: whisper-models-downloader
-    volumes:
-      - whisper-models:/root/.cache/huggingface
-    environment:
-      - HF_HOME=/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    profiles:
-      - init
 
   # Celery Worker服务 - 视频处理队列
   celery-worker:
@@ -153,8 +117,6 @@ services:
       - ./data:/app/data
       - /data/videos/learning-manager:/app/local-videos
       - ./logs:/app/logs
-      # 使用Docker volume挂载模型
-      - whisper-models:/root/.cache/huggingface
       # GPU访问
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
@@ -200,8 +162,6 @@ services:
       start_period: 60s
 
 volumes:
-  whisper-models:
-    driver: local
   redis-data:
     driver: local
 

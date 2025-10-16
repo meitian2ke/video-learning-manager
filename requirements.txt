@@ -3,8 +3,8 @@ uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
 pydantic==2.5.0
 python-multipart==0.0.6
-faster-whisper>=1.0.0
-av>=9.0.0,<10.0.0
+# 使用最新稳定版本的faster-whisper
+faster-whisper>=1.0.3
 yt-dlp==2023.11.16
 redis>=4.5.2,<5.0.0
 celery[redis]==5.3.4
