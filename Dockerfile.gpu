@@ -7,12 +7,19 @@ ENV PYTHONUNBUFFERED=1
 ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# 安装系统依赖
+# 安装系统依赖（包含FFmpeg开发库）
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3.11-dev \
     python3-pip \
     ffmpeg \
+    libavformat-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavutil-dev \
+    libavfilter-dev \
+    libswscale-dev \
+    libswresample-dev \
     git \
     curl \
     wget \
@@ -49,6 +56,7 @@ RUN python3.11 -m pip install torch torchvision torchaudio \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
 # 先安装faster-whisper和关键依赖（确保安装成功）
+# FFmpeg开发库已在上面安装，PyAV可以正常编译
 RUN python3.11 -m pip install faster-whisper==0.9.0 transformers huggingface-hub -i https://pypi.tuna.tsinghua.edu.cn/simple/
 
 # 安装其他依赖
